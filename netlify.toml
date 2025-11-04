@@ -1,0 +1,47 @@
+# Netlify configuration for DrumKitzz
+# https://docs.netlify.com/configure-builds/file-based-configuration/
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# Next.js Runtime
+[build.environment]
+  NEXT_PRIVATE_TARGET = "server"
+
+# Redirects and rewrites
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/___netlify-handler"
+  status = 200
+
+# Headers for security
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Cache static assets
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/images/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# API routes with longer timeout for AI processing
+[[functions]]
+  directory = ".netlify/functions"
+  node_bundler = "esbuild"
+
+# Increase timeout for AI extraction endpoint (max 26 seconds on free tier, 900 on pro)
+[[functions]]
+  functions = ["___netlify-handler"]
+  included_files = [".next/**"]

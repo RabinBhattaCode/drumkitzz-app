@@ -1,0 +1,1328 @@
+{
+  "project": {
+    "name": "DrumKitzz",
+    "version": "1.0.0",
+    "description": "AI-powered drum kit creation and marketplace platform. Extract, slice, and share professional drum kits from any audio source.",
+    "repository": "https://github.com/yourusername/drumkitzz",
+    "tech_stack": {
+      "frontend": ["Next.js 15", "React 18", "TypeScript", "Tailwind CSS", "shadcn/ui"],
+      "backend": ["Next.js API Routes", "Supabase", "PostgreSQL", "Upstash Redis"],
+      "ai_audio": ["Demucs (via Replicate)", "Web Audio API", "FFmpeg"],
+      "infrastructure": ["Netlify", "Supabase", "Upstash", "Stripe"],
+      "development": ["ESLint", "Prettier", "TypeScript", "Git"]
+    },
+    "status": "Active Development - MVP Phase"
+  },
+
+  "environment_variables": {
+    "required": {
+      "NEXT_PUBLIC_SUPABASE_URL": {
+        "description": "Supabase project URL",
+        "get_from": "https://supabase.com/dashboard/project/_/settings/api",
+        "example": "https://xxxxx.supabase.co",
+        "public": true
+      },
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY": {
+        "description": "Supabase anonymous key",
+        "get_from": "https://supabase.com/dashboard/project/_/settings/api",
+        "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "public": true
+      },
+      "SUPABASE_SERVICE_ROLE_KEY": {
+        "description": "Supabase service role key (server-side only)",
+        "get_from": "https://supabase.com/dashboard/project/_/settings/api",
+        "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+        "public": false,
+        "warning": "Keep this secret! Do not expose to client."
+      },
+      "REPLICATE_API_TOKEN": {
+        "description": "Replicate API token for Demucs AI",
+        "get_from": "https://replicate.com/account/api-tokens",
+        "cost": "$0.02 per extraction, $5 free credit",
+        "example": "r8_xxxxxxxxxxxxx",
+        "public": false
+      }
+    },
+    "recommended": {
+      "UPSTASH_REDIS_REST_URL": {
+        "description": "Upstash Redis REST URL for rate limiting",
+        "get_from": "https://console.upstash.com (create database, copy REST URL)",
+        "free_tier": "10,000 commands/day",
+        "example": "https://xxxxx.upstash.io",
+        "public": false,
+        "note": "If not set, rate limiting will be disabled in development"
+      },
+      "UPSTASH_REDIS_REST_TOKEN": {
+        "description": "Upstash Redis REST token",
+        "get_from": "https://console.upstash.com (same page as URL)",
+        "example": "AXXXxxxxxxxxxxxxxx",
+        "public": false
+      }
+    },
+    "optional": {
+      "USE_LOCAL_DEMUCS": {
+        "description": "Use local Python Demucs instead of Replicate API",
+        "values": ["true", "false"],
+        "default": "false",
+        "requires": "Python 3.8+, pip install demucs",
+        "cost": "100% free but requires local setup"
+      },
+      "DEMUCS_MODEL": {
+        "description": "Demucs model to use (if USE_LOCAL_DEMUCS=true)",
+        "values": ["htdemucs_ft (best quality)", "htdemucs (faster)"],
+        "default": "htdemucs_ft"
+      },
+      "STRIPE_SECRET_KEY": {
+        "description": "Stripe secret key for payment processing",
+        "get_from": "https://dashboard.stripe.com/apikeys",
+        "example": "sk_test_xxxxxxxxxxxxx",
+        "public": false,
+        "note": "Use test keys (sk_test_) for development"
+      },
+      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY": {
+        "description": "Stripe publishable key",
+        "get_from": "https://dashboard.stripe.com/apikeys",
+        "example": "pk_test_xxxxxxxxxxxxx",
+        "public": true
+      },
+      "STRIPE_WEBHOOK_SECRET": {
+        "description": "Stripe webhook signing secret",
+        "get_from": "https://dashboard.stripe.com/webhooks (create endpoint first)",
+        "endpoint_url": "https://your-domain.com/api/webhooks/stripe",
+        "events": ["checkout.session.completed", "payment_intent.succeeded"],
+        "example": "whsec_xxxxxxxxxxxxx",
+        "public": false
+      },
+      "SECURITY_WEBHOOK_URL": {
+        "description": "Webhook URL for security events (failed logins, rate limits, etc.)",
+        "options": [
+          "Leave empty (logs to console only)",
+          "Use webhook.site for testing",
+          "Use your monitoring service (Sentry, DataDog, etc.)"
+        ],
+        "example": "https://webhook.site/your-unique-url",
+        "public": false,
+        "note": "Optional - for receiving security alerts"
+      }
+    }
+  },
+
+  "getting_started": {
+    "setup_steps": [
+      "1. Clone repository",
+      "2. Run 'npm install'",
+      "3. Copy .env.example to .env.local",
+      "4. Set up Supabase account (free tier available)",
+      "5. Get Supabase URL and keys, add to .env.local",
+      "6. Set up Replicate account (free $5 credit)",
+      "7. Get Replicate API token, add to .env.local",
+      "8. (Optional) Set up Upstash Redis for rate limiting",
+      "9. (Optional) Set up Stripe for marketplace payments",
+      "10. Run 'npm run dev' to start development server",
+      "11. Visit http://localhost:3000"
+    ],
+    "minimum_setup": {
+      "description": "Minimum environment variables to get started",
+      "required": [
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "REPLICATE_API_TOKEN"
+      ],
+      "can_skip_initially": [
+        "UPSTASH_REDIS_REST_URL (rate limiting disabled)",
+        "UPSTASH_REDIS_REST_TOKEN",
+        "STRIPE_SECRET_KEY (marketplace disabled)",
+        "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+        "SECURITY_WEBHOOK_URL (logs to console)"
+      ]
+    },
+    "alternative_free_setup": {
+      "description": "100% free setup using local Demucs",
+      "steps": [
+        "1-5. Same as above (Supabase is free)",
+        "6. Install Python 3.8+",
+        "7. Run 'pip install demucs'",
+        "8. Set USE_LOCAL_DEMUCS=true in .env.local",
+        "9. Set DEMUCS_MODEL=htdemucs_ft in .env.local",
+        "10. Skip Replicate setup (no API token needed)",
+        "11. Run 'npm run dev'"
+      ],
+      "pros": ["100% free", "No API limits", "Works offline"],
+      "cons": ["Slower on weak machines", "Requires Python setup", "Won't work on Netlify/Vercel (serverless)"]
+    }
+  },
+
+  "external_integrations": {
+    "replicate": {
+      "purpose": "AI drum separation using Demucs model",
+      "website": "https://replicate.com",
+      "model": "Demucs (Facebook Research)",
+      "model_id": "b76242b40d606da8c8f34d0e434d1e8a6c93f1c34e4e0b03f4fa84247adbfbdc",
+      "pricing": {
+        "free_credit": "$5 (enough for 250 extractions)",
+        "per_extraction": "$0.02",
+        "average_time": "30-60 seconds"
+      },
+      "api_token_location": "https://replicate.com/account/api-tokens",
+      "used_in": ["lib/audio-extraction.ts", "app/api/extract-drums/route.ts"],
+      "alternative": "Local Demucs (set USE_LOCAL_DEMUCS=true)"
+    },
+    "supabase": {
+      "purpose": "Backend services (database, auth, storage)",
+      "website": "https://supabase.com",
+      "services": {
+        "database": "PostgreSQL with real-time subscriptions",
+        "auth": "Email, OAuth (Google, GitHub, Discord)",
+        "storage": "File storage for audio and images"
+      },
+      "pricing": {
+        "free_tier": "500MB database, 1GB storage, 50K monthly active users",
+        "paid": "$25/month for more resources"
+      },
+      "setup_url": "https://supabase.com/dashboard",
+      "used_in": ["All API routes", "Authentication", "Data storage"]
+    },
+    "upstash": {
+      "purpose": "Redis for rate limiting and caching",
+      "website": "https://upstash.com",
+      "pricing": {
+        "free_tier": "10,000 commands/day",
+        "paid": "$0.2 per 100K commands"
+      },
+      "setup_url": "https://console.upstash.com",
+      "used_in": ["lib/rate-limit.ts", "middleware.ts"],
+      "optional": "Yes - rate limiting disabled if not configured"
+    },
+    "stripe": {
+      "purpose": "Payment processing for marketplace",
+      "website": "https://stripe.com",
+      "features": ["Payment intents", "Checkout sessions", "Connect (for creator payouts)", "Webhooks"],
+      "pricing": {
+        "transaction_fee": "2.9% + $0.30 per transaction",
+        "connect_fee": "0.25% additional for payouts"
+      },
+      "setup_url": "https://dashboard.stripe.com",
+      "used_in": ["Marketplace purchase flow (Phase 2)"],
+      "optional": "Yes - marketplace disabled if not configured"
+    },
+    "demucs": {
+      "purpose": "Open-source drum separation AI",
+      "source": "Facebook Research",
+      "github": "https://github.com/facebookresearch/demucs",
+      "license": "MIT",
+      "quality": "State-of-the-art source separation",
+      "options": {
+        "cloud": "Via Replicate API ($0.02 per extraction)",
+        "local": "Free, requires Python and GPU/CPU"
+      },
+      "models": {
+        "htdemucs_ft": "Best quality, slower",
+        "htdemucs": "Good quality, faster"
+      }
+    }
+  },
+
+  "known_issues": {
+    "high_priority": [
+      {
+        "issue": "AI extraction requires Replicate API token",
+        "status": "Configuration needed",
+        "impact": "Core feature doesn't work without token",
+        "workaround": "Use demo mode (client-side enhancement) or set up local Demucs",
+        "solution": "Get free Replicate API token at replicate.com",
+        "assigned_to": "New developer"
+      },
+      {
+        "issue": "Marketplace not connected to database",
+        "status": "Phase 2 - Not implemented",
+        "impact": "Can't buy/sell kits yet",
+        "workaround": "Focus on core editor features first",
+        "solution": "Implement Supabase database schema and API routes",
+        "assigned_to": "New developer"
+      },
+      {
+        "issue": "User authentication not implemented",
+        "status": "Phase 2 - Not implemented",
+        "impact": "Can't save work or create account",
+        "workaround": "Use export feature to save work locally",
+        "solution": "Implement Supabase Auth integration",
+        "assigned_to": "New developer"
+      }
+    ],
+    "medium_priority": [
+      {
+        "issue": "YouTube extraction needs real implementation",
+        "status": "Demo implementation",
+        "impact": "YouTube URL extraction doesn't work",
+        "workaround": "Download audio manually, then upload",
+        "solution": "Implement ytdl-core or similar service",
+        "assigned_to": "New developer"
+      },
+      {
+        "issue": "No rate limiting without Redis",
+        "status": "Optional feature",
+        "impact": "API can be abused if no rate limits",
+        "workaround": "Set up free Upstash Redis",
+        "solution": "Add UPSTASH_REDIS_REST_URL to .env.local",
+        "assigned_to": "DevOps"
+      }
+    ],
+    "low_priority": [
+      {
+        "issue": "Security webhook not configured",
+        "status": "Optional feature",
+        "impact": "Security events only logged to console",
+        "workaround": "Monitor console logs in development",
+        "solution": "Set up webhook.site or monitoring service",
+        "assigned_to": "DevOps"
+      }
+    ]
+  },
+
+  "next_steps": {
+    "immediate": [
+      {
+        "task": "Get Replicate API token",
+        "priority": "Critical",
+        "time_estimate": "5 minutes",
+        "steps": [
+          "Go to replicate.com",
+          "Create free account",
+          "Navigate to Account → API tokens",
+          "Create new token",
+          "Add to .env.local as REPLICATE_API_TOKEN"
+        ]
+      },
+      {
+        "task": "Set up Supabase project",
+        "priority": "Critical",
+        "time_estimate": "15 minutes",
+        "steps": [
+          "Go to supabase.com",
+          "Create free account",
+          "Create new project (choose region closest to you)",
+          "Wait for project setup (2-3 minutes)",
+          "Go to Settings → API",
+          "Copy URL, anon key, and service_role key",
+          "Add to .env.local"
+        ]
+      },
+      {
+        "task": "Test audio processing",
+        "priority": "High",
+        "time_estimate": "10 minutes",
+        "steps": [
+          "Start dev server (npm run dev)",
+          "Upload a test audio file",
+          "Click 'Extract Drums' (if API configured)",
+          "Wait for processing",
+          "Verify waveform displays",
+          "Test slice detection",
+          "Try exporting slices"
+        ]
+      }
+    ],
+    "short_term": [
+      {
+        "task": "Set up Upstash Redis",
+        "priority": "Medium",
+        "time_estimate": "10 minutes",
+        "optional": true
+      },
+      {
+        "task": "Create database schema in Supabase",
+        "priority": "High",
+        "time_estimate": "1 hour",
+        "depends_on": ["Supabase setup"]
+      },
+      {
+        "task": "Implement user authentication",
+        "priority": "High",
+        "time_estimate": "2-3 hours",
+        "depends_on": ["Supabase setup", "Database schema"]
+      },
+      {
+        "task": "Connect marketplace to database",
+        "priority": "High",
+        "time_estimate": "1 day",
+        "depends_on": ["Authentication", "Database schema"]
+      }
+    ],
+    "long_term": [
+      {
+        "task": "Implement Stripe payments",
+        "priority": "High",
+        "time_estimate": "2-3 days"
+      },
+      {
+        "task": "Build social features",
+        "priority": "Medium",
+        "time_estimate": "1 week"
+      },
+      {
+        "task": "Mobile app development",
+        "priority": "Low",
+        "time_estimate": "1 month"
+      }
+    ]
+  },
+
+  "for_ai_assistants": {
+    "cursor_usage": {
+      "purpose": "This JSON helps AI assistants understand the full project structure",
+      "when_to_reference": [
+        "User asks about project structure",
+        "User asks how components connect",
+        "User asks about data flow",
+        "User needs to understand dependencies",
+        "User wants to add new features",
+        "User troubleshoots issues"
+      ],
+      "key_sections": {
+        "file_structure": "Understand where files are and what they do",
+        "data_flow": "Understand how data moves through the app",
+        "environment_variables": "Know what env vars are needed and where to get them",
+        "external_integrations": "Understand third-party services",
+        "known_issues": "Be aware of current limitations",
+        "next_steps": "Guide users on what to do next"
+      }
+    },
+    "recommendations": [
+      "Always check 'known_issues' before suggesting solutions",
+      "Reference 'environment_variables' when setup questions arise",
+      "Use 'data_flow' to explain how features work",
+      "Check 'next_steps' to prioritize tasks",
+      "Refer to 'external_integrations' for API questions"
+    ],
+    "common_questions": {
+      "how_does_audio_processing_work": "See data_flow.audio_processing_workflow",
+      "what_env_vars_do_i_need": "See environment_variables.required and environment_variables.recommended",
+      "where_is_the_waveform_code": "See file_structure.app.components.waveform.tsx",
+      "how_do_i_add_a_new_feature": "See file_structure and data_flow, then check next_steps",
+      "why_isnt_ai_extraction_working": "See known_issues.high_priority[0] - need Replicate API token",
+      "can_i_use_this_without_paying": "Yes! See environment_variables.alternative_free_setup"
+    }
+  },
+
+  "development_workflow": {
+    "local_development": {
+      "start_server": "npm run dev",
+      "build": "npm run build",
+      "lint": "npm run lint",
+      "type_check": "npm run type-check",
+      "format": "npm run format"
+    },
+    "testing": {
+      "manual_testing": [
+        "Upload various audio formats (WAV, MP3, FLAC)",
+        "Test AI extraction with different audio types",
+        "Adjust sensitivity and verify slice detection",
+        "Edit slices (trim, fade, rename)",
+        "Export and verify ZIP contents",
+        "Test on mobile devices"
+      ],
+      "automated_testing": "Not yet implemented - use manual testing"
+    },
+    "git_workflow": {
+      "branches": {
+        "main": "Production-ready code",
+        "develop": "Active development",
+        "feature/*": "New features",
+        "bugfix/*": "Bug fixes"
+      },
+      "commit_convention": "Conventional Commits (feat:, fix:, docs:, etc.)"
+    }
+  },
+
+  "deployment": {
+    "netlify": {
+      "recommended": true,
+      "reason": "Great Next.js support, automatic deployments, edge functions",
+      "steps": ["Push code to GitHub", "Connect repo to Netlify", "Add environment variables", "Deploy"],
+      "note": "Netlify will auto-detect Next.js and configure everything"
+    },
+    "other_platforms": {
+      "vercel": "Supported, excellent Next.js integration",
+      "aws_amplify": "Supported with Next.js SSR",
+      "railway": "Supported, simple setup",
+      "self_hosted": "Supported with 'npm run build && npm start'"
+    },
+    "environment_setup": {
+      "production": "Add all env vars from .env.local",
+      "preview": "Same as production for testing",
+      "development": "Optional, for cloud development"
+    }
+  },
+
+  "architecture_decisions": {
+    "why_nextjs": "Server-side rendering, API routes, great DX, easy deployment",
+    "why_supabase": "Free tier, PostgreSQL, real-time, auth built-in, easy setup",
+    "why_replicate": "Easy AI model hosting, pay-per-use, no infrastructure management",
+    "why_demucs": "Best open-source source separation, MIT license, state-of-the-art quality",
+    "why_web_audio_api": "Browser-native, no dependencies, real-time processing",
+    "why_canvas": "High performance, 60fps, handles large waveforms",
+    "why_shadcn_ui": "Beautiful, accessible, customizable, no component library lock-in",
+    "why_tailwind": "Fast styling, consistent design, small bundle size"
+  },
+
+  "performance_considerations": {
+    "audio_processing": {
+      "large_files": "Use Web Workers for heavy processing (future)",
+      "waveform_rendering": "Canvas with adaptive detail level (LOD)",
+      "slice_detection": "Optimized algorithm, <3s for 3-minute audio",
+      "export": "Async processing with progress indicators"
+    },
+    "database": {
+      "indexing": "Index frequently queried columns",
+      "caching": "Redis for popular searches and data",
+      "pagination": "Always paginate large result sets",
+      "real_time": "Use Supabase Realtime sparingly"
+    },
+    "api": {
+      "rate_limiting": "Prevent abuse with Upstash Redis",
+      "caching": "Cache expensive operations",
+      "compression": "Gzip responses",
+      "cdn": "Use Netlify Edge Network for static assets"
+    }
+  },
+
+  "security_best_practices": {
+    "authentication": "Supabase Auth with JWT tokens",
+    "authorization": "Row-level security in Supabase",
+    "file_upload": "Validate file types and sizes",
+    "api_security": "Rate limiting, input validation, CORS",
+    "payment_security": "PCI compliance via Stripe (no card data stored)",
+    "data_privacy": "GDPR/CCPA compliant with Supabase",
+    "secrets": "Never commit .env.local, use environment variables"
+  },
+
+  "monitoring_and_observability": {
+    "current": {
+      "console_logs": "Development logging",
+      "netlify_analytics": "Basic usage analytics"
+    },
+    "planned": {
+      "sentry": "Error tracking and monitoring",
+      "posthog": "Product analytics and user behavior",
+      "uptime_monitoring": "Status page and alerts"
+    }
+  },
+
+  "documentation": {
+    "README.md": "Project overview and setup instructions",
+    "PRD.md": "Complete product requirements (this file)",
+    "project-architecture.json": "Technical architecture map (this file)",
+    "API.md": "API documentation (planned)",
+    "CONTRIBUTING.md": "Contribution guidelines (planned)"
+  },
+
+  "community": {
+    "discord": "Planned - community server",
+    "github_discussions": "For questions and discussions",
+    "github_issues": "Bug reports and feature requests",
+    "twitter": "Product updates and announcements"
+  },
+
+  "roadmap_summary": {
+    "phase_1_mvp": {
+      "status": "In Progress (80% complete)",
+      "features": ["Audio upload/recording", "AI extraction", "Slice detection", "Waveform editor", "Export"],
+      "target_date": "Month 1-2"
+    },
+    "phase_2_marketplace": {
+      "status": "Planned",
+      "features": ["User auth", "Kit listing", "Search/browse", "Purchase/download", "Reviews"],
+      "target_date": "Month 3-6"
+    },
+    "phase_3_social": {
+      "status": "Planned",
+      "features": ["User profiles", "Follow system", "Comments/likes", "Activity feed", "Notifications"],
+      "target_date": "Month 7-9"
+    },
+    "phase_4_advanced": {
+      "status": "Future",
+      "features": ["Mobile apps", "DAW plugins", "Advanced AI", "Collaboration", "Analytics"],
+      "target_date": "Month 10-12+"
+    }
+  },
+
+  "core_features": {
+    "audio_processing": {
+      "description": "Handle audio input, extraction, and processing",
+      "components": [
+        "app/page.tsx",
+        "app/components/youtube-extractor.tsx",
+        "app/api/extract-drums/route.ts",
+        "app/api/youtube-extract/route.ts",
+        "lib/audio-extraction.ts"
+      ],
+      "workflow": [
+        "User uploads/records/extracts audio",
+        "Optional: AI separates drum stem (Demucs)",
+        "Audio decoded to AudioBuffer",
+        "Waveform rendered for visualization",
+        "Ready for slice detection"
+      ],
+      "external_services": ["Replicate (Demucs AI)", "YouTube (ytdl-core)"]
+    },
+
+    "slice_detection": {
+      "description": "Automatically detect and classify drum hits",
+      "components": [
+        "app/page.tsx (detection logic)",
+        "app/components/waveform.tsx",
+        "app/components/slice-waveform.tsx"
+      ],
+      "workflow": [
+        "Analyze audio buffer for transients",
+        "Calculate energy and zero-crossing rate",
+        "Identify potential slice points",
+        "Classify drum types (kick/snare/hat/etc)",
+        "Create slice objects with metadata",
+        "Display in waveform and slice grid"
+      ],
+      "algorithm": {
+        "method": "Energy-based transient detection",
+        "window_size": 1024,
+        "hop_size": 512,
+        "features": ["RMS energy", "Zero-crossing rate", "Frequency content"],
+        "classification": "Rule-based (frequency + ZCR analysis)"
+      }
+    },
+
+    "waveform_editor": {
+      "description": "Visual audio editing interface",
+      "components": ["app/components/waveform.tsx", "app/components/slice-waveform.tsx", "app/components/knob.tsx"],
+      "features": {
+        "main_waveform": {
+          "zoom": "1x to 50x",
+          "scroll": "Horizontal pan",
+          "interactions": ["Click to play", "Double-click to create slice", "Drag markers"],
+          "visual_elements": ["Waveform peaks", "Slice markers", "Playhead", "Potential slices"]
+        },
+        "slice_waveforms": {
+          "zoom": "1x to 20x per slice",
+          "scroll": "Per-slice independent",
+          "editing": ["Trim start/end", "Fade in/out", "Fade curves"],
+          "controls": ["Knobs for precise adjustment", "Drag markers for quick edits"]
+        }
+      }
+    },
+
+    "sample_editor": {
+      "description": "Edit individual drum samples",
+      "components": [
+        "app/components/sample-editor.tsx",
+        "app/components/knob.tsx",
+        "app/components/slice-waveform.tsx"
+      ],
+      "editing_features": {
+        "trim": "Adjust start and end points",
+        "fades": {
+          "fade_in": "0-100ms",
+          "fade_out": "0-500ms",
+          "curves": ["linear", "exponential", "logarithmic"]
+        },
+        "classification": "Change drum type (kick/snare/etc)",
+        "naming": "Custom sample names with auto-numbering",
+        "organization": "Grid layouts (1-4 per row)"
+      }
+    },
+
+    "export_system": {
+      "description": "Export drum kits in various formats",
+      "components": ["app/components/export-panel.tsx", "app/page.tsx (export logic)"],
+      "formats": {
+        "audio": ["WAV (16/24-bit)", "MP3 (320/192kbps)"],
+        "metadata": ["MIDI map (optional)", "Text metadata (optional)"],
+        "structure": "ZIP with organized folders"
+      },
+      "folder_structure": {
+        "root": "KitName.zip",
+        "folders": ["Kicks/", "Snares/", "Hats/", "Toms/", "Cymbals/", "Perc/"],
+        "files": ["KitPrefix_Type_Number.wav", "metadata.txt", "MIDI_Map.mid"]
+      },
+      "workflow": [
+        "User selects slices to export",
+        "Choose format and options",
+        "Process each slice (apply fades, export audio)",
+        "Generate metadata and MIDI files",
+        "Create ZIP archive",
+        "Download to user's device"
+      ]
+    },
+
+    "marketplace": {
+      "description": "Buy and sell drum kits (Phase 2)",
+      "status": "Planned - Not yet implemented",
+      "components_planned": [
+        "app/marketplace/page.tsx",
+        "app/marketplace/drumkit/[id]/page.tsx",
+        "app/components/marketplace/marketplace.tsx",
+        "app/api/kits/route.ts",
+        "app/api/purchase/route.ts"
+      ],
+      "features_planned": {
+        "browsing": ["Search", "Filter by genre/price/rating", "Sort options", "Preview audio"],
+        "listing": ["Create listing", "Set price", "Add cover image", "Manage inventory"],
+        "purchasing": ["Stripe checkout", "Instant download", "Purchase history"],
+        "social": ["Reviews", "Ratings", "Comments", "Follow creators"]
+      }
+    },
+
+    "user_management": {
+      "description": "Authentication and user profiles (Phase 2)",
+      "status": "Planned - Not yet implemented",
+      "components_planned": [
+        "app/components/auth/auth-forms.tsx",
+        "app/components/profile/user-profile.tsx",
+        "app/my-kits/page.tsx",
+        "app/my-kits/[id]/page.tsx"
+      ],
+      "auth_methods": ["Email/Password", "Google OAuth", "GitHub OAuth"],
+      "profile_features": ["Avatar", "Bio", "Social links", "Kits created", "Stats"]
+    },
+
+    "social_features": {
+      "description": "Community engagement (Phase 3)",
+      "status": "Planned - Not yet implemented",
+      "components_planned": [
+        "app/social/page.tsx",
+        "app/components/social/comments.tsx",
+        "app/components/comments/comment-section.tsx"
+      ],
+      "features_planned": {
+        "following": "Follow favorite creators",
+        "feed": "Activity feed from followed users",
+        "interactions": ["Like kits", "Comment on kits", "Share kits"],
+        "notifications": "Real-time updates"
+      }
+    },
+
+    "admin_tools": {
+      "description": "Platform administration (Phase 3)",
+      "status": "Partially implemented",
+      "components": ["app/admin/security/page.tsx"],
+      "features": {
+        "security": ["Audit logs", "Rate limit monitoring", "Security events"],
+        "moderation": "Planned",
+        "analytics": "Planned",
+        "user_management": "Planned"
+      }
+    }
+  },
+
+  "file_structure": {
+    "app": {
+      "purpose": "Next.js App Router pages and API routes",
+      "key_files": {
+        "page.tsx": {
+          "purpose": "Main drum kit editor (core application)",
+          "imports": [
+            "Waveform",
+            "SliceWaveform",
+            "Knob",
+            "YouTubeExtractor",
+            "ExtractionProgressDialog",
+            "audio-extraction"
+          ],
+          "state": {
+            "audioBuffer": "Current audio data",
+            "originalAudioBuffer": "Pre-extraction audio",
+            "slices": "Detected drum slices",
+            "potentialSlices": "Preview of possible slices",
+            "selectedSliceId": "Currently selected slice",
+            "isProcessing": "Loading state",
+            "exportSettings": "Export configuration"
+          },
+          "key_functions": [
+            "handleFileUpload",
+            "extractDrumStem",
+            "detectSlices",
+            "playSlice",
+            "exportSlices",
+            "updateSlice",
+            "removeSlice"
+          ]
+        },
+        "layout.tsx": {
+          "purpose": "Root layout with navbar and providers",
+          "imports": ["Navbar", "ThemeProvider", "Toaster"],
+          "wraps": "All pages with consistent layout"
+        },
+        "globals.css": {
+          "purpose": "Global styles and Tailwind setup",
+          "includes": ["Tailwind directives", "shadcn/ui variables", "Custom animations"]
+        }
+      },
+      "subdirectories": {
+        "api": {
+          "purpose": "Backend API routes (serverless functions)",
+          "routes": {
+            "extract-drums/route.ts": {
+              "methods": ["POST"],
+              "actions": ["upload", "check"],
+              "integrations": ["Replicate API (Demucs)"],
+              "returns": "Drum stem audio URL or processing status"
+            },
+            "youtube-extract/route.ts": {
+              "methods": ["POST"],
+              "accepts": "YouTube URL",
+              "returns": "Extracted audio blob",
+              "dependencies": ["ytdl-core", "ffmpeg"]
+            }
+          }
+        },
+        "components": {
+          "purpose": "React components for the editor",
+          "key_components": {
+            "waveform.tsx": {
+              "purpose": "Main audio waveform display",
+              "props": {
+                "audioBuffer": "Audio data to visualize",
+                "slices": "Slice markers to overlay",
+                "potentialSlices": "Preview slice positions",
+                "currentTime": "Playhead position",
+                "zoomLevel": "Zoom multiplier",
+                "scrollPosition": "Horizontal scroll"
+              },
+              "interactions": [
+                "Click to play position",
+                "Double-click to create slice",
+                "Drag markers to adjust slices",
+                "Scroll to pan"
+              ],
+              "renders": "Canvas-based waveform visualization"
+            },
+            "slice-waveform.tsx": {
+              "purpose": "Individual slice waveform display",
+              "props": {
+                "audioBuffer": "Full audio buffer",
+                "start": "Slice start time",
+                "end": "Slice end time",
+                "fadeIn": "Fade in duration (ms)",
+                "fadeOut": "Fade out duration (ms)",
+                "zoomLevel": "Slice-specific zoom",
+                "scrollPosition": "Slice-specific scroll"
+              },
+              "features": ["Independent zoom/scroll", "Fade visualization", "Draggable boundaries"],
+              "renders": "Canvas-based slice visualization"
+            },
+            "knob.tsx": {
+              "purpose": "Rotary knob control component",
+              "props": {
+                "value": "Current value",
+                "min": "Minimum value",
+                "max": "Maximum value",
+                "step": "Increment step",
+                "onChange": "Value change handler"
+              },
+              "interaction": "Drag vertically to adjust value",
+              "visual": "SVG-based circular knob"
+            },
+            "youtube-extractor.tsx": {
+              "purpose": "YouTube URL input and extraction",
+              "workflow": [
+                "User pastes YouTube URL",
+                "Validate URL format",
+                "Call API to extract audio",
+                "Show progress",
+                "Return audio blob to parent"
+              ],
+              "validation": "Checks for valid YouTube URL format"
+            },
+            "extraction-progress-dialog.tsx": {
+              "purpose": "AI extraction progress modal",
+              "displays": ["Current stage", "Progress percentage", "Estimated time", "Status messages"],
+              "stages": ["uploading", "processing", "downloading", "complete", "error"]
+            },
+            "export-panel.tsx": {
+              "purpose": "Export settings and actions",
+              "options": {
+                "formats": ["WAV", "MP3"],
+                "quality": ["16-bit", "24-bit", "320kbps", "192kbps"],
+                "extras": ["Include MIDI", "Include metadata"]
+              },
+              "actions": ["Export selected slices", "Export all"]
+            }
+          }
+        },
+        "marketplace": {
+          "purpose": "Marketplace pages (Phase 2)",
+          "status": "Planned",
+          "pages": {
+            "page.tsx": "Browse kits",
+            "drumkit/[id]/page.tsx": "Kit details and purchase"
+          }
+        },
+        "my-kits": {
+          "purpose": "User's drum kits management",
+          "status": "Partially implemented",
+          "pages": {
+            "page.tsx": "List of user's kits",
+            "[id]/page.tsx": "Edit specific kit",
+            "layout.tsx": "My Kits section layout"
+          }
+        },
+        "social": {
+          "purpose": "Social features pages",
+          "status": "Planned",
+          "pages": {
+            "page.tsx": "Activity feed and social interactions"
+          }
+        },
+        "admin": {
+          "purpose": "Admin dashboard",
+          "status": "Partially implemented",
+          "pages": {
+            "security/page.tsx": "Security monitoring and audit logs"
+          }
+        }
+      }
+    },
+
+    "components": {
+      "purpose": "Shared React components (shadcn/ui + custom)",
+      "subdirectories": {
+        "ui": {
+          "purpose": "shadcn/ui component library",
+          "components": [
+            "button.tsx",
+            "card.tsx",
+            "dialog.tsx",
+            "input.tsx",
+            "label.tsx",
+            "slider.tsx",
+            "checkbox.tsx",
+            "dropdown-menu.tsx",
+            "tooltip.tsx",
+            "progress.tsx",
+            "tabs.tsx",
+            "accordion.tsx",
+            "alert.tsx",
+            "badge.tsx",
+            "toast.tsx"
+          ],
+          "note": "Do NOT modify these unless absolutely necessary - import and use as-is"
+        },
+        "navbar.tsx": {
+          "purpose": "Application navigation bar",
+          "features": ["Logo", "Navigation links", "User menu", "Theme toggle"],
+          "responsive": "Hamburger menu on mobile"
+        },
+        "my-kits-panel.tsx": {
+          "purpose": "Display user's drum kits",
+          "features": ["Kit cards", "Search", "Filter", "Sort"],
+          "status": "Partially implemented"
+        },
+        "theme-provider.tsx": {
+          "purpose": "Dark/light theme management",
+          "uses": "next-themes library",
+          "provides": "Theme context to all components"
+        }
+      }
+    },
+
+    "lib": {
+      "purpose": "Utility functions and libraries",
+      "key_files": {
+        "audio-extraction.ts": {
+          "purpose": "AI drum extraction logic",
+          "exports": {
+            "extractDrumsWithReplicate": "Use Replicate API (Demucs)",
+            "extractDrumsWithLocalDemucs": "Use local Python Demucs",
+            "enhanceDrumsClientSide": "Client-side drum enhancement (fallback)",
+            "mockDrumExtraction": "Demo mode extraction"
+          },
+          "dependencies": ["Replicate SDK", "Web Audio API"],
+          "workflow": [
+            "Upload audio to API",
+            "Poll for processing status",
+            "Download extracted drum stem",
+            "Decode to AudioBuffer",
+            "Return to caller"
+          ]
+        },
+        "utils.ts": {
+          "purpose": "General utility functions",
+          "exports": {
+            "cn": "Tailwind class name merger",
+            "formatTime": "Format seconds to MM:SS",
+            "formatFileSize": "Format bytes to KB/MB"
+          }
+        },
+        "rate-limit.ts": {
+          "purpose": "API rate limiting with Redis",
+          "uses": "Upstash Redis",
+          "limits": {
+            "api_requests": "100 per minute per IP",
+            "uploads": "10 per hour per user",
+            "extractions": "5 per hour per user"
+          }
+        },
+        "secure-upload.ts": {
+          "purpose": "Secure file upload validation",
+          "checks": ["File type whitelist", "File size limits", "Malware scanning (future)", "Content validation"],
+          "max_sizes": {
+            "audio": "100MB",
+            "image": "5MB"
+          }
+        },
+        "audit-logger.ts": {
+          "purpose": "Security event logging",
+          "logs": ["Failed logins", "Rate limit violations", "Suspicious activity", "Admin actions"],
+          "sends_to": "Security webhook (if configured) or console"
+        }
+      }
+    },
+
+    "hooks": {
+      "purpose": "Custom React hooks",
+      "files": {
+        "use-mobile.tsx": "Detect mobile device",
+        "use-toast.ts": "Toast notification management"
+      }
+    },
+
+    "public": {
+      "purpose": "Static assets",
+      "subdirectories": {
+        "images": ["drumkitzz-logo.png", "drumkitzz-icon.png", "placeholder images"],
+        "test-audio": "Sample audio files for development"
+      }
+    },
+
+    "docs": {
+      "purpose": "Project documentation",
+      "files": {
+        "PRD.md": "Product Requirements Document (this file)",
+        "API.md": "API documentation (planned)",
+        "ARCHITECTURE.md": "Technical architecture (planned)"
+      }
+    },
+
+    "scripts": {
+      "purpose": "Utility scripts",
+      "subdirectories": {
+        "db": "Database migration scripts (planned)"
+      }
+    },
+
+    "config_files": {
+      "next.config.mjs": "Next.js configuration",
+      "tailwind.config.ts": "Tailwind CSS configuration",
+      "tsconfig.json": "TypeScript configuration",
+      "package.json": "Dependencies and scripts",
+      "components.json": "shadcn/ui configuration",
+      ".env.example": "Environment variables template",
+      ".env.local": "Local environment variables (gitignored)",
+      ".gitignore": "Git ignore rules",
+      "middleware.ts": "Next.js middleware (rate limiting, auth)"
+    }
+  },
+
+  "data_flow": {
+    "audio_processing_workflow": {
+      "steps": [
+        {
+          "step": 1,
+          "name": "Audio Input",
+          "components": ["app/page.tsx", "app/components/youtube-extractor.tsx"],
+          "actions": ["User uploads file", "User records audio", "User extracts from YouTube"],
+          "output": "File or Blob object"
+        },
+        {
+          "step": 2,
+          "name": "AI Extraction (Optional)",
+          "components": ["lib/audio-extraction.ts", "app/api/extract-drums/route.ts"],
+          "actions": ["Upload to Replicate", "Demucs processes audio", "Poll for completion", "Download drum stem"],
+          "duration": "30-60 seconds",
+          "output": "Drum-isolated audio file"
+        },
+        {
+          "step": 3,
+          "name": "Audio Decoding",
+          "components": ["app/page.tsx (Web Audio API)"],
+          "actions": ["Convert file to ArrayBuffer", "Decode with AudioContext", "Create AudioBuffer"],
+          "output": "AudioBuffer object"
+        },
+        {
+          "step": 4,
+          "name": "Waveform Rendering",
+          "components": ["app/components/waveform.tsx"],
+          "actions": ["Calculate peak values", "Render to canvas", "Enable zoom/scroll"],
+          "output": "Visual waveform display"
+        },
+        {
+          "step": 5,
+          "name": "Slice Detection",
+          "components": ["app/page.tsx (detectSlices function)"],
+          "actions": [
+            "Analyze audio for transients",
+            "Calculate energy and ZCR",
+            "Classify drum types",
+            "Create slice objects"
+          ],
+          "output": "Array of slice objects"
+        },
+        {
+          "step": 6,
+          "name": "Slice Editing",
+          "components": [
+            "app/components/slice-waveform.tsx",
+            "app/components/knob.tsx",
+            "app/components/sample-editor.tsx"
+          ],
+          "actions": ["User adjusts trim points", "User adds fades", "User renames slices", "User changes types"],
+          "output": "Updated slice objects"
+        },
+        {
+          "step": 7,
+          "name": "Export",
+          "components": ["app/page.tsx (exportSlices function)", "app/components/export-panel.tsx"],
+          "actions": [
+            "Create audio buffers for each slice",
+            "Apply fades",
+            "Encode to WAV/MP3",
+            "Generate metadata",
+            "Create ZIP archive",
+            "Download"
+          ],
+          "output": "ZIP file with organized samples"
+        }
+      ]
+    },
+
+    "marketplace_purchase_flow": {
+      "status": "Planned - Not yet implemented",
+      "steps": [
+        {
+          "step": 1,
+          "name": "Browse",
+          "components": ["app/marketplace/page.tsx"],
+          "actions": ["Search/filter kits", "Preview audio", "View details"]
+        },
+        {
+          "step": 2,
+          "name": "Add to Cart",
+          "components": ["app/marketplace/drumkit/[id]/page.tsx"],
+          "actions": ["Click 'Buy Now' or 'Add to Cart'", "View cart"]
+        },
+        {
+          "step": 3,
+          "name": "Checkout",
+          "components": ["app/api/checkout/route.ts"],
+          "actions": ["Create Stripe checkout session", "Redirect to Stripe"]
+        },
+        {
+          "step": 4,
+          "name": "Payment",
+          "external": "Stripe",
+          "actions": ["User enters payment info", "Stripe processes payment"]
+        },
+        {
+          "step": 5,
+          "name": "Webhook",
+          "components": ["app/api/webhooks/stripe/route.ts"],
+          "actions": ["Stripe sends webhook", "Create purchase record", "Generate download link"]
+        },
+        {
+          "step": 6,
+          "name": "Delivery",
+          "components": ["app/api/download/[purchaseId]/route.ts"],
+          "actions": ["User clicks download", "Generate signed URL", "Download kit ZIP"]
+        }
+      ]
+    },
+
+    "user_registration_flow": {
+      "status": "Planned - Not yet implemented",
+      "steps": [
+        {
+          "step": 1,
+          "name": "Sign Up",
+          "components": ["app/components/auth/auth-forms.tsx"],
+          "actions": ["User enters email/password or OAuth", "Submit form"]
+        },
+        {
+          "step": 2,
+          "name": "Supabase Auth",
+          "external": "Supabase",
+          "actions": ["Create user account", "Send verification email"]
+        },
+        {
+          "step": 3,
+          "name": "Email Verification",
+          "actions": ["User clicks email link", "Supabase verifies", "Redirect to app"]
+        },
+        {
+          "step": 4,
+          "name": "Profile Creation",
+          "components": ["app/components/profile/user-profile.tsx"],
+          "actions": ["User sets username", "Upload avatar", "Add bio", "Save profile"]
+        },
+        {
+          "step": 5,
+          "name": "Onboarding",
+          "actions": ["Show welcome tour", "Explain features", "Create first kit"]
+        }
+      ]
+    }
+  },
+
+  "database_schema": {
+    "note": "Using Supabase (PostgreSQL)",
+    "tables": {
+      "users": {
+        "purpose": "User accounts and profiles",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "email": "text UNIQUE NOT NULL",
+          "username": "text UNIQUE",
+          "display_name": "text",
+          "avatar_url": "text",
+          "bio": "text",
+          "location": "text",
+          "website": "text",
+          "created_at": "timestamp",
+          "updated_at": "timestamp"
+        },
+        "relationships": ["drum_kits (one-to-many)", "purchases (one-to-many)", "reviews (one-to-many)"]
+      },
+      "drum_kits": {
+        "purpose": "Drum kit listings",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "user_id": "uuid REFERENCES users(id)",
+          "name": "text NOT NULL",
+          "description": "text",
+          "cover_image_url": "text",
+          "audio_file_url": "text",
+          "file_size": "integer",
+          "sample_count": "integer",
+          "genre": "text[]",
+          "tags": "text[]",
+          "bpm_min": "integer",
+          "bpm_max": "integer",
+          "price": "decimal(10,2)",
+          "is_free": "boolean",
+          "is_published": "boolean",
+          "download_count": "integer DEFAULT 0",
+          "view_count": "integer DEFAULT 0",
+          "like_count": "integer DEFAULT 0",
+          "rating_avg": "decimal(3,2)",
+          "rating_count": "integer DEFAULT 0",
+          "created_at": "timestamp",
+          "updated_at": "timestamp"
+        },
+        "relationships": [
+          "samples (one-to-many)",
+          "purchases (one-to-many)",
+          "reviews (one-to-many)",
+          "likes (one-to-many)"
+        ]
+      },
+      "samples": {
+        "purpose": "Individual drum samples within kits",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "kit_id": "uuid REFERENCES drum_kits(id)",
+          "name": "text NOT NULL",
+          "type": "text (kick/snare/hat/tom/cymb/perc)",
+          "start_time": "decimal(10,6)",
+          "end_time": "decimal(10,6)",
+          "fade_in": "integer",
+          "fade_out": "integer",
+          "audio_url": "text",
+          "order_index": "integer",
+          "created_at": "timestamp"
+        },
+        "relationships": ["drum_kits (many-to-one)"]
+      },
+      "purchases": {
+        "purpose": "Kit purchase records",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "buyer_id": "uuid REFERENCES users(id)",
+          "kit_id": "uuid REFERENCES drum_kits(id)",
+          "amount": "decimal(10,2)",
+          "stripe_payment_id": "text",
+          "status": "text (pending/completed/refunded)",
+          "download_url": "text",
+          "expires_at": "timestamp",
+          "created_at": "timestamp"
+        },
+        "relationships": ["users (many-to-one)", "drum_kits (many-to-one)", "reviews (one-to-one)"]
+      },
+      "reviews": {
+        "purpose": "Kit reviews and ratings",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "user_id": "uuid REFERENCES users(id)",
+          "kit_id": "uuid REFERENCES drum_kits(id)",
+          "purchase_id": "uuid REFERENCES purchases(id)",
+          "rating": "integer (1-5)",
+          "audio_quality": "integer (1-5)",
+          "value_rating": "integer (1-5)",
+          "uniqueness_rating": "integer (1-5)",
+          "review_text": "text",
+          "helpful_count": "integer DEFAULT 0",
+          "created_at": "timestamp",
+          "updated_at": "timestamp"
+        },
+        "relationships": ["users (many-to-one)", "drum_kits (many-to-one)", "purchases (many-to-one)"]
+      },
+      "follows": {
+        "purpose": "User follow relationships",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "follower_id": "uuid REFERENCES users(id)",
+          "following_id": "uuid REFERENCES users(id)",
+          "created_at": "timestamp",
+          "constraint": "UNIQUE(follower_id, following_id)"
+        },
+        "relationships": ["users (many-to-one) x2"]
+      },
+      "likes": {
+        "purpose": "Kit likes/favorites",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "user_id": "uuid REFERENCES users(id)",
+          "kit_id": "uuid REFERENCES drum_kits(id)",
+          "created_at": "timestamp",
+          "constraint": "UNIQUE(user_id, kit_id)"
+        },
+        "relationships": ["users (many-to-one)", "drum_kits (many-to-one)"]
+      },
+      "comments": {
+        "purpose": "Kit comments and discussions",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "user_id": "uuid REFERENCES users(id)",
+          "kit_id": "uuid REFERENCES drum_kits(id)",
+          "parent_id": "uuid REFERENCES comments(id)",
+          "text": "text NOT NULL",
+          "upvote_count": "integer DEFAULT 0",
+          "is_deleted": "boolean DEFAULT false",
+          "created_at": "timestamp",
+          "updated_at": "timestamp"
+        },
+        "relationships": ["users (many-to-one)", "drum_kits (many-to-one)", "comments (self-referential, nested)"]
+      },
+      "notifications": {
+        "purpose": "User notifications",
+        "columns": {
+          "id": "uuid PRIMARY KEY",
+          "user_id": "uuid REFERENCES users(id)",
+          "type": "text (like/comment/follow/purchase)",
+          "related_user_id": "uuid REFERENCES users(id)",
+          "related_kit_id": "uuid REFERENCES drum_kits(id)",
+          "is_read": "boolean DEFAULT false",
+          "created_at": "timestamp"
+        },
+        "relationships": ["users (many-to-one) x2", "drum_kits (many-to-one)"]
+      }
+    }
+  }
+}
