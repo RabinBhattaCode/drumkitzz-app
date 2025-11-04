@@ -39,4 +39,5 @@
 # GLOBAL FUNCTIONS SETTINGS (single object, not [[functions]])
 [functions]
   node_bundler = "esbuild"
-  included_files = [".next/**"]
+  # Don't include .next/** - it's too large and handled by Next.js plugin
+  included_files = []
