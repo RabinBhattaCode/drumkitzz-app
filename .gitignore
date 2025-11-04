@@ -27,3 +27,4 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 *.DS_Store
+.DS_Store
