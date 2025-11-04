@@ -2,10 +2,9 @@
 # https://docs.netlify.com/configure-builds/file-based-configuration/
 
 [build]
-  # Use npm; swap to pnpm example below if you prefer
-  command = "npm ci && npm run build"
+  command = "npm install && npm run build"
   publish = ".next"
-  functions = ".netlify/functions"   # <-- belongs under [build]
+  functions = ".netlify/functions"
 
 [build.environment]
   NEXT_PRIVATE_TARGET = "server"
