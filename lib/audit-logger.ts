@@ -1,10 +1,20 @@
 import { createClient } from "@supabase/supabase-js"
 
-// Initialize Supabase client
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+// Lazy initialization of Supabase client to avoid build-time errors
+let supabase: ReturnType<typeof createClient> | null = null
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey)
+function getSupabaseClient() {
+  if (!supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ""
+
+    // Only create client if env vars are available
+    if (supabaseUrl && supabaseServiceKey) {
+      supabase = createClient(supabaseUrl, supabaseServiceKey)
+    }
+  }
+  return supabase
+}
 
 export enum AuditEventType {
   USER_LOGIN = "user.login",
@@ -34,11 +44,17 @@ export type AuditLogEntry = {
 
 export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
   try {
+    const client = getSupabaseClient()
+    if (!client) {
+      console.warn("Supabase not configured, skipping audit log")
+      return
+    }
+
     // Add timestamp
     const timestamp = new Date().toISOString()
 
     // Insert into audit_logs table
-    const { error } = await supabase.from("audit_logs").insert({
+    const { error } = await client.from("audit_logs").insert({
       ...entry,
       created_at: timestamp,
     })
