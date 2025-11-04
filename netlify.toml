@@ -2,12 +2,14 @@
 # https://docs.netlify.com/configure-builds/file-based-configuration/
 
 [build]
-  command = "npm install && npm run build"
+  command = "npm install --legacy-peer-deps && npm run build"
   publish = ".next"
   functions = ".netlify/functions"
 
 [build.environment]
   NEXT_PRIVATE_TARGET = "server"
+  # Use legacy peer deps to avoid version conflicts
+  NPM_FLAGS = "--legacy-peer-deps"
 
 # Netlify Next.js runtime plugin (handles SSR, routes, redirects)
 [[plugins]]
