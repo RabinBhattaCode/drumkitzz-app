@@ -21,7 +21,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAuth } from "@/lib/auth-context"
-import { Menu, Music, TrendingUp, ShoppingBag, User, Settings, LogOut, Bell, ShoppingCart, Box, Trash2 } from 'lucide-react'
+import { Menu, Music, TrendingUp, ShoppingBag, User, Settings, LogOut, Bell, ShoppingCart, Box, Trash2, Sparkles } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -90,6 +90,7 @@ export default function Navbar() {
 
   const navItems = [
     { href: "/", label: "Create", icon: Music },
+    { href: "/extractor-experiment", label: "Prototype", icon: Sparkles },
     { href: "/my-kits", label: "My Kits", icon: Box },
     { href: "/marketplace", label: "Market", icon: ShoppingBag },
     { href: "/charts", label: "Charts", icon: TrendingUp },
