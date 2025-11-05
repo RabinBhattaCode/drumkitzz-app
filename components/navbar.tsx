@@ -126,14 +126,13 @@ export default function Navbar() {
         {/* Logo */}
         <div className="p-4 border-b border-gray-700">
           <Link href="/" className="flex items-center justify-center">
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
               alt="DrumKitzz"
               width={140}
               height={48}
-              className="object-contain"
-              priority
-              unoptimized
+              className="object-contain max-w-full h-auto"
             />
           </Link>
         </div>
@@ -250,14 +249,13 @@ export default function Navbar() {
         <div className="container flex h-16 items-center justify-between">
           {/* Mobile Logo */}
           <Link href="/" className="flex items-center">
-            <Image
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
               alt="DrumKitzz"
               width={120}
               height={40}
-              className="object-contain"
-              priority
-              unoptimized
+              className="object-contain max-w-full h-auto"
             />
           </Link>
 
@@ -308,14 +306,13 @@ export default function Navbar() {
                 <div className="flex flex-col h-full">
                   <div className="py-4">
                     <Link href="/" className="block">
-                      <Image
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
                         src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
                         alt="DrumKitzz"
                         width={150}
                         height={50}
-                        className="object-contain mx-auto"
-                        priority
-                        unoptimized
+                        className="object-contain mx-auto max-w-full h-auto"
                       />
                     </Link>
                   </div>

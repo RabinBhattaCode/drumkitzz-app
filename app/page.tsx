@@ -356,7 +356,7 @@ export default function DrumSlicerPro() {
 
     // Initialize audio context if not already done
     if (!audioContextInitialized) {
-      initializeAudioContext()
+      await initializeAudioContext()
     }
 
     setAudioFile(file)
@@ -420,7 +420,7 @@ export default function DrumSlicerPro() {
       if (file.type.includes("audio")) {
         // Initialize audio context if not already done
         if (!audioContextInitialized) {
-          initializeAudioContext()
+          await initializeAudioContext()
         }
 
         setAudioFile(file)
@@ -531,11 +531,17 @@ export default function DrumSlicerPro() {
   const startRecording = async () => {
     // Initialize audio context if not already done
     if (!audioContextInitialized) {
-      initializeAudioContext()
+      await initializeAudioContext()
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      })
       mediaRecorderRef.current = new MediaRecorder(stream)
       recordedChunksRef.current = []
 
@@ -703,7 +709,7 @@ export default function DrumSlicerPro() {
 
     // Ensure audio context is initialized
     if (!audioContextInitialized) {
-      initializeAudioContext()
+      await initializeAudioContext()
     }
 
     setIsProcessing(true)
@@ -830,10 +836,10 @@ export default function DrumSlicerPro() {
   }
 
   // Play/pause audio
-  const togglePlayback = () => {
+  const togglePlayback = async () => {
     // Ensure audio context is initialized
     if (!audioContextInitialized) {
-      initializeAudioContext()
+      await initializeAudioContext()
     }
 
     if (isPlaying) {
@@ -1590,13 +1596,13 @@ export default function DrumSlicerPro() {
 
                 <div className="mt-2 w-full max-w-full">
                   <YouTubeExtractor
-                    onAudioExtracted={(blob, title) => {
+                    onAudioExtracted={async (blob, title) => {
                       // Create a File object from the blob
                       const file = new File([blob], `${title}.mp3`, { type: "audio/mpeg" })
 
                       // Initialize audio context if not already done
                       if (!audioContextInitialized) {
-                        initializeAudioContext()
+                        await initializeAudioContext()
                       }
 
                       // Process the file as if it was uploaded
