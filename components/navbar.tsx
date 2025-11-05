@@ -122,16 +122,18 @@ export default function Navbar() {
   return (
     <>
       {/* Left Sidebar - Desktop */}
-      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-64 flex-col border-r bg-gray-800/95 backdrop-blur supports-[backdrop-filter]:bg-gray-800/90 z-50">
+      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-48 flex-col border-r bg-gray-800/95 backdrop-blur supports-[backdrop-filter]:bg-gray-800/90 z-50">
         {/* Logo */}
-        <div className="p-6 border-b border-gray-700">
+        <div className="p-4 border-b border-gray-700">
           <Link href="/" className="flex items-center justify-center">
             <Image
               src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
               alt="DrumKitzz"
-              width={180}
-              height={60}
+              width={140}
+              height={48}
               className="object-contain"
+              priority
+              unoptimized
             />
           </Link>
         </div>
@@ -254,6 +256,8 @@ export default function Navbar() {
               width={120}
               height={40}
               className="object-contain"
+              priority
+              unoptimized
             />
           </Link>
 
@@ -303,13 +307,17 @@ export default function Navbar() {
               <SheetContent side="left" className="w-64 bg-gray-800 border-gray-700">
                 <div className="flex flex-col h-full">
                   <div className="py-4">
-                    <Image
-                      src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
-                      alt="DrumKitzz"
-                      width={150}
-                      height={50}
-                      className="object-contain mx-auto"
-                    />
+                    <Link href="/" className="block">
+                      <Image
+                        src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
+                        alt="DrumKitzz"
+                        width={150}
+                        height={50}
+                        className="object-contain mx-auto"
+                        priority
+                        unoptimized
+                      />
+                    </Link>
                   </div>
                   <Separator className="bg-gray-700" />
                   <ScrollArea className="flex-1 py-4">

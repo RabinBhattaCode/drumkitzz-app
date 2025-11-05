@@ -21,7 +21,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-background antialiased">
         <AuthProvider>
           <Navbar />
-          <main className="pt-16">{children}</main>
+          <main className="pt-16 md:pt-0 md:pl-48">{children}</main>
           <Toaster />
         </AuthProvider>
       </body>
