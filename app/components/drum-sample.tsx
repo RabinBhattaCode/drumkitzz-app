@@ -47,8 +47,10 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
   const [dragStartX, setDragStartX] = useState(0)
 
   useEffect(() => {
-    // Initialize AudioContext
-    audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+    // Initialize AudioContext (lazily on first interaction for mobile support)
+    if (!audioContext.current) {
+      audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+    }
 
     // Draw waveform
     drawWaveform()
@@ -229,10 +231,15 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
     }
   }
 
-  const handlePlayClick = () => {
+  const handlePlayClick = async () => {
     if (isPlaying) {
       stopSample()
     } else {
+      // Resume AudioContext if suspended (required for iOS/mobile)
+      if (audioContext.current && audioContext.current.state === 'suspended') {
+        await audioContext.current.resume()
+      }
+
       onPlay()
       setIsPlaying(true)
 

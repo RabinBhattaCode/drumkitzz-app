@@ -150,7 +150,7 @@ export default function DrumSlicerPro() {
   }
 
   // Initialize audio context with user interaction
-  const initializeAudioContext = () => {
+  const initializeAudioContext = async () => {
     if (!audioContextInitialized) {
       try {
         // Create audio context
@@ -158,7 +158,7 @@ export default function DrumSlicerPro() {
 
         // Resume audio context (needed for iOS)
         if (audioContext.current.state === "suspended") {
-          audioContext.current.resume()
+          await audioContext.current.resume()
         }
 
         // Create gain node
@@ -958,10 +958,10 @@ export default function DrumSlicerPro() {
   }
 
   // Play a specific slice
-  const playSlice = (sliceId: string) => {
+  const playSlice = async (sliceId: string) => {
     // Ensure audio context is initialized
     if (!audioContextInitialized) {
-      initializeAudioContext()
+      await initializeAudioContext()
     }
 
     const slice = slices.find((s) => s.id === sliceId)
@@ -972,7 +972,7 @@ export default function DrumSlicerPro() {
 
     // Resume audio context if suspended (needed for iOS)
     if (audioContext.current.state === "suspended") {
-      audioContext.current.resume()
+      await audioContext.current.resume()
     }
 
     // Stop any current playback
