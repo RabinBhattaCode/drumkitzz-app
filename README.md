@@ -2,7 +2,7 @@
 
 ![DrumKitzz Logo](public/images/drumkitzz-logo.png)
 
-## 🎯 Vision
+## 🎯 Visionn
 
 DrumKitzz is a revolutionary web-based platform that transforms how producers create, process, and share drum samples. By combining AI-powered audio extraction, intelligent slice detection, and a thriving marketplace, we're building the future of drum kit creation.
 

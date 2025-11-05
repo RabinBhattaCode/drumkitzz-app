@@ -125,18 +125,26 @@ export default function Navbar() {
         {/* Logo */}
         <div className="p-4 border-b border-gray-700 bg-white/5">
           <Link href="/" className="flex items-center justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png"
+              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
               alt="DrumKitzz"
-              width={140}
-              height={48}
+              width="140"
+              height="48"
               className="object-contain max-w-full h-auto"
+              loading="eager"
+              crossOrigin="anonymous"
               onError={(e) => {
-                console.error('Logo failed to load');
-                (e.target as HTMLImageElement).style.display = 'none';
+                console.error('Desktop logo failed to load', e);
+                const target = e.target as HTMLImageElement;
+                console.log('Image src:', target.src);
+                console.log('Image complete:', target.complete);
+                console.log('Image naturalWidth:', target.naturalWidth);
               }}
-              onLoad={() => console.log('Logo loaded successfully')}
+              onLoad={(e) => {
+                console.log('Desktop logo loaded successfully');
+                const target = e.target as HTMLImageElement;
+                console.log('Image naturalWidth:', target.naturalWidth, 'naturalHeight:', target.naturalHeight);
+              }}
             />
           </Link>
         </div>
@@ -253,17 +261,20 @@ export default function Navbar() {
         <div className="container flex h-16 items-center justify-between">
           {/* Mobile Logo */}
           <Link href="/" className="flex items-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png"
+              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
               alt="DrumKitzz"
-              width={120}
-              height={40}
+              width="120"
+              height="40"
               className="object-contain max-w-full h-auto"
+              loading="eager"
+              crossOrigin="anonymous"
               onError={(e) => {
-                console.error('Mobile logo failed to load');
-                (e.target as HTMLImageElement).style.display = 'none';
+                console.error('Mobile navbar logo failed to load', e);
+                const target = e.target as HTMLImageElement;
+                console.log('Image src:', target.src);
               }}
+              onLoad={() => console.log('Mobile navbar logo loaded successfully')}
             />
           </Link>
 
@@ -314,17 +325,20 @@ export default function Navbar() {
                 <div className="flex flex-col h-full">
                   <div className="py-4">
                     <Link href="/" className="block">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png"
+                        src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
                         alt="DrumKitzz"
-                        width={150}
-                        height={50}
+                        width="150"
+                        height="50"
                         className="object-contain mx-auto max-w-full h-auto"
+                        loading="eager"
+                        crossOrigin="anonymous"
                         onError={(e) => {
-                          console.error('Menu logo failed to load');
-                          (e.target as HTMLImageElement).style.display = 'none';
+                          console.error('Mobile menu logo failed to load', e);
+                          const target = e.target as HTMLImageElement;
+                          console.log('Image src:', target.src);
                         }}
+                        onLoad={() => console.log('Mobile menu logo loaded successfully')}
                       />
                     </Link>
                   </div>

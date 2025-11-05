@@ -235,9 +235,17 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
     if (isPlaying) {
       stopSample()
     } else {
-      // Resume AudioContext if suspended (required for iOS/mobile)
-      if (audioContext.current && audioContext.current.state === 'suspended') {
-        await audioContext.current.resume()
+      // CRITICAL FOR MOBILE: Resume AudioContext if not running (required for iOS/mobile)
+      if (audioContext.current) {
+        try {
+          if (audioContext.current.state !== 'running') {
+            console.log('[DrumSample] Resuming AudioContext, current state:', audioContext.current.state)
+            await audioContext.current.resume()
+            console.log('[DrumSample] AudioContext resumed, new state:', audioContext.current.state)
+          }
+        } catch (error) {
+          console.error('[DrumSample] Failed to resume AudioContext:', error)
+        }
       }
 
       onPlay()

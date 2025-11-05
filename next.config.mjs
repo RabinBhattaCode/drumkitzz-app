@@ -8,10 +8,12 @@ const nextConfig = {
   },
   images: {
     unoptimized: true,
+    domains: ['ik.imagekit.io'],
     remotePatterns: [
       {
         protocol: 'https',
         hostname: 'ik.imagekit.io',
+        port: '',
         pathname: '/**',
       },
     ],

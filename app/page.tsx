@@ -154,24 +154,27 @@ export default function DrumSlicerPro() {
     if (!audioContextInitialized) {
       try {
         console.log('[Audio] Initializing AudioContext...')
-        // Create audio context
+        // Create audio context (with webkit prefix for older Safari)
         audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)()
         console.log('[Audio] AudioContext created, state:', audioContext.current.state)
 
-        // Resume audio context (needed for iOS)
-        if (audioContext.current.state === "suspended") {
-          console.log('[Audio] AudioContext is suspended, resuming...')
+        // CRITICAL FOR MOBILE: Resume audio context immediately after creation
+        // This is required for iOS and mobile browsers to unlock audio
+        if (audioContext.current.state !== "running") {
+          console.log('[Audio] AudioContext not running, resuming...')
           await audioContext.current.resume()
           console.log('[Audio] AudioContext resumed, new state:', audioContext.current.state)
         }
 
-        // Create gain node
+        // Create gain node and connect to destination
         gainNode.current = audioContext.current.createGain()
         gainNode.current.connect(audioContext.current.destination)
+        console.log('[Audio] Gain node created and connected to destination')
 
         // Set initial volume
         if (gainNode.current) {
           gainNode.current.gain.value = volume
+          console.log('[Audio] Initial volume set to:', volume)
         }
 
         setAudioContextInitialized(true)
@@ -189,6 +192,17 @@ export default function DrumSlicerPro() {
           description: "Failed to initialize audio. Please try again.",
           variant: "destructive",
         })
+      }
+    } else {
+      // If already initialized, ensure it's resumed (for mobile)
+      if (audioContext.current && audioContext.current.state !== "running") {
+        try {
+          console.log('[Audio] AudioContext already initialized but not running, resuming...')
+          await audioContext.current.resume()
+          console.log('[Audio] AudioContext resumed, state:', audioContext.current.state)
+        } catch (error) {
+          console.error('[Audio] Failed to resume existing AudioContext:', error)
+        }
       }
     }
   }
@@ -992,15 +1006,27 @@ export default function DrumSlicerPro() {
     }
 
     console.log('[Audio] Playing slice:', slice.name, 'duration:', (slice.end - slice.start) * 1000, 'ms')
+    console.log('[Audio] AudioContext state before resume:', audioContext.current.state)
 
     // Set this slice as selected first for immediate visual feedback
     setSelectedSliceId(sliceId)
 
-    // Resume audio context if suspended (needed for iOS)
-    if (audioContext.current.state === "suspended") {
-      console.log('[Audio] Resuming suspended AudioContext...')
-      await audioContext.current.resume()
-      console.log('[Audio] AudioContext resumed, state:', audioContext.current.state)
+    // CRITICAL FOR MOBILE: Always try to resume AudioContext before playback
+    // This is required for iOS Safari and mobile browsers
+    try {
+      if (audioContext.current.state !== "running") {
+        console.log('[Audio] AudioContext not running, attempting to resume...')
+        await audioContext.current.resume()
+        console.log('[Audio] AudioContext resumed successfully, state:', audioContext.current.state)
+      }
+    } catch (error) {
+      console.error('[Audio] Failed to resume AudioContext:', error)
+      toast({
+        title: "Audio Error",
+        description: "Could not initialize audio playback. Try tapping the screen first.",
+        variant: "destructive",
+      })
+      return
     }
 
     // Stop any current playback
@@ -1023,11 +1049,28 @@ export default function DrumSlicerPro() {
 
     // Create a gain node for this slice
     const sliceGainNode = audioContext.current.createGain()
-    sliceGainNode.gain.value = isMuted ? 0 : volume
+    // CRITICAL FOR MOBILE: Ensure volume is actually set and audible
+    const effectiveVolume = isMuted ? 0 : Math.max(volume, 0.5) // Ensure minimum 0.5 volume for testing
+    sliceGainNode.gain.value = effectiveVolume
 
-    // Connect nodes to prepare for playback
-    sourceNode.current.connect(sliceGainNode)
-    sliceGainNode.connect(audioContext.current.destination)
+    console.log('[Audio] Created source node and gain node, volume:', volume, 'effective volume:', effectiveVolume, 'muted:', isMuted)
+    console.log('[Audio] Gain value set to:', sliceGainNode.gain.value)
+
+    // CRITICAL FOR MOBILE: Connect audio graph explicitly
+    // Mobile browsers require explicit connection to destination
+    try {
+      sourceNode.current.connect(sliceGainNode)
+      sliceGainNode.connect(audioContext.current.destination)
+      console.log('[Audio] Audio nodes connected to destination successfully')
+    } catch (error) {
+      console.error('[Audio] Failed to connect audio nodes:', error)
+      toast({
+        title: "Audio Error",
+        description: "Failed to connect audio nodes",
+        variant: "destructive",
+      })
+      return
+    }
 
     // Create the slice buffer asynchronously but start playback as soon as possible
     const sliceBuffer = audioContext.current.createBuffer(audioBuffer.numberOfChannels, length, audioBuffer.sampleRate)
@@ -1069,8 +1112,22 @@ export default function DrumSlicerPro() {
       if (sourceNode.current) {
         sourceNode.current.buffer = sliceBuffer
         console.log('[Audio] Starting playback now...')
-        sourceNode.current.start(0)
-        console.log('[Audio] Playback started successfully')
+        console.log('[Audio] AudioContext state right before start():', audioContext.current?.state)
+        console.log('[Audio] Destination channels:', audioContext.current?.destination.channelCount)
+        console.log('[Audio] Sample rate:', audioContext.current?.sampleRate)
+
+        try {
+          sourceNode.current.start(0)
+          console.log('[Audio] Playback started successfully')
+          console.log('[Audio] Source node state after start - should be playing')
+        } catch (error) {
+          console.error('[Audio] FAILED to start source node:', error)
+          toast({
+            title: "Playback Error",
+            description: "Failed to start audio playback. " + (error as Error).message,
+            variant: "destructive",
+          })
+        }
       }
     }
 
