@@ -19,7 +19,7 @@ import {
   Radar,
   Sparkles,
   UploadCloud,
-  Waveform,
+  Waves,
   Youtube,
 } from "lucide-react"
 
@@ -30,7 +30,7 @@ const featureHighlights = [
     description: "Industry-leading Demucs separation tuned for drums & percussion.",
   },
   {
-    icon: Waveform,
+    icon: Waves,
     title: "Sculpted one-shots",
     description: "Transient-aware slicing keeps the punch and trims the noise.",
   },
