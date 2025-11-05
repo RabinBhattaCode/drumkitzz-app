@@ -25,7 +25,6 @@ import { Menu, Music, TrendingUp, ShoppingBag, User, Settings, LogOut, Bell, Sho
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import Image from "next/image"
 
 // Mock cart items
 const mockCartItems = [
@@ -124,15 +123,20 @@ export default function Navbar() {
       {/* Left Sidebar - Desktop */}
       <aside className="hidden md:flex fixed left-0 top-0 h-screen w-48 flex-col border-r bg-gray-800/95 backdrop-blur supports-[backdrop-filter]:bg-gray-800/90 z-50">
         {/* Logo */}
-        <div className="p-4 border-b border-gray-700">
+        <div className="p-4 border-b border-gray-700 bg-white/5">
           <Link href="/" className="flex items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
+              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png"
               alt="DrumKitzz"
               width={140}
               height={48}
               className="object-contain max-w-full h-auto"
+              onError={(e) => {
+                console.error('Logo failed to load');
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+              onLoad={() => console.log('Logo loaded successfully')}
             />
           </Link>
         </div>
@@ -251,11 +255,15 @@ export default function Navbar() {
           <Link href="/" className="flex items-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
+              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png"
               alt="DrumKitzz"
               width={120}
               height={40}
               className="object-contain max-w-full h-auto"
+              onError={(e) => {
+                console.error('Mobile logo failed to load');
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
             />
           </Link>
 
@@ -308,11 +316,15 @@ export default function Navbar() {
                     <Link href="/" className="block">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
+                        src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png"
                         alt="DrumKitzz"
                         width={150}
                         height={50}
                         className="object-contain mx-auto max-w-full h-auto"
+                        onError={(e) => {
+                          console.error('Menu logo failed to load');
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
                       />
                     </Link>
                   </div>

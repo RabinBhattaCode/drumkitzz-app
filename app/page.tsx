@@ -153,12 +153,16 @@ export default function DrumSlicerPro() {
   const initializeAudioContext = async () => {
     if (!audioContextInitialized) {
       try {
+        console.log('[Audio] Initializing AudioContext...')
         // Create audio context
         audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+        console.log('[Audio] AudioContext created, state:', audioContext.current.state)
 
         // Resume audio context (needed for iOS)
         if (audioContext.current.state === "suspended") {
+          console.log('[Audio] AudioContext is suspended, resuming...')
           await audioContext.current.resume()
+          console.log('[Audio] AudioContext resumed, new state:', audioContext.current.state)
         }
 
         // Create gain node
@@ -171,6 +175,7 @@ export default function DrumSlicerPro() {
         }
 
         setAudioContextInitialized(true)
+        console.log('[Audio] AudioContext initialized successfully')
 
         // Show success toast
         toast({
@@ -178,7 +183,7 @@ export default function DrumSlicerPro() {
           description: "Audio playback is now enabled",
         })
       } catch (error) {
-        console.error("Failed to initialize audio context:", error)
+        console.error("[Audio] Failed to initialize audio context:", error)
         toast({
           title: "Audio Error",
           description: "Failed to initialize audio. Please try again.",
@@ -965,20 +970,37 @@ export default function DrumSlicerPro() {
 
   // Play a specific slice
   const playSlice = async (sliceId: string) => {
+    console.log('[Audio] playSlice called, sliceId:', sliceId)
     // Ensure audio context is initialized
     if (!audioContextInitialized) {
+      console.log('[Audio] AudioContext not initialized, initializing now...')
       await initializeAudioContext()
     }
 
     const slice = slices.find((s) => s.id === sliceId)
-    if (!slice || !audioBuffer || !audioContext.current) return
+    if (!slice) {
+      console.error('[Audio] Slice not found:', sliceId)
+      return
+    }
+    if (!audioBuffer) {
+      console.error('[Audio] No audio buffer available')
+      return
+    }
+    if (!audioContext.current) {
+      console.error('[Audio] AudioContext is null')
+      return
+    }
+
+    console.log('[Audio] Playing slice:', slice.name, 'duration:', (slice.end - slice.start) * 1000, 'ms')
 
     // Set this slice as selected first for immediate visual feedback
     setSelectedSliceId(sliceId)
 
     // Resume audio context if suspended (needed for iOS)
     if (audioContext.current.state === "suspended") {
+      console.log('[Audio] Resuming suspended AudioContext...')
       await audioContext.current.resume()
+      console.log('[Audio] AudioContext resumed, state:', audioContext.current.state)
     }
 
     // Stop any current playback
@@ -1046,7 +1068,9 @@ export default function DrumSlicerPro() {
       // Set the buffer and start playback
       if (sourceNode.current) {
         sourceNode.current.buffer = sliceBuffer
+        console.log('[Audio] Starting playback now...')
         sourceNode.current.start(0)
+        console.log('[Audio] Playback started successfully')
       }
     }
 
