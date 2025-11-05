@@ -10,7 +10,7 @@ export function middleware(request: NextRequest) {
     default-src 'self';
     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.google-analytics.com;
     style-src 'self' 'unsafe-inline';
-    img-src 'self' blob: data: https://i.ytimg.com https://www.gravatar.com;
+    img-src 'self' blob: data: https://i.ytimg.com https://www.gravatar.com https://ik.imagekit.io;
     font-src 'self';
     connect-src 'self' https://www.googleapis.com https://www.youtube.com https://*.supabase.co;
     media-src 'self' blob: data: https://www.youtube.com;

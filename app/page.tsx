@@ -150,7 +150,7 @@ export default function DrumSlicerPro() {
   }
 
   // Initialize audio context with user interaction
-  const initializeAudioContext = async () => {
+  const initializeAudioContext = async ({ showToast = true }: { showToast?: boolean } = {}) => {
     if (!audioContextInitialized) {
       try {
         console.log('[Audio] Initializing AudioContext...')
@@ -181,10 +181,12 @@ export default function DrumSlicerPro() {
         console.log('[Audio] AudioContext initialized successfully')
 
         // Show success toast
-        toast({
-          title: "Audio initialized",
-          description: "Audio playback is now enabled",
-        })
+        if (showToast) {
+          toast({
+            title: "Audio initialized",
+            description: "Audio playback is now enabled",
+          })
+        }
       } catch (error) {
         console.error("[Audio] Failed to initialize audio context:", error)
         toast({
@@ -206,6 +208,29 @@ export default function DrumSlicerPro() {
       }
     }
   }
+
+  useEffect(() => {
+    if (audioContextInitialized) {
+      return
+    }
+
+    let unlocked = false
+
+    const unlockAudioContext = () => {
+      if (unlocked) return
+      unlocked = true
+      initializeAudioContext({ showToast: false }).catch((error) => {
+        console.error("[Audio] Failed to unlock audio context on gesture:", error)
+      })
+    }
+
+    const events: Array<keyof WindowEventMap> = ["pointerdown", "touchstart"]
+    events.forEach((event) => window.addEventListener(event, unlockAudioContext, { once: true }))
+
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, unlockAudioContext))
+    }
+  }, [audioContextInitialized])
 
   // Create a sample audio buffer with a simple drum pattern
   const createSampleAudioBuffer = (audioContext: AudioContext): AudioBuffer => {
