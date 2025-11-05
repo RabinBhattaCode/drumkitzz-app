@@ -50,13 +50,6 @@ export default function DrumSlicerPro() {
   const { isAuthenticated, isLoading: authLoading } = useAuth()
   const router = useRouter()
 
-  // Redirect to dashboard if authenticated
-  useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      router.push("/dashboard")
-    }
-  }, [isAuthenticated, authLoading, router])
-
   // Audio state
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null)
