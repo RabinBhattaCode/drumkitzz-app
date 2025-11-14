@@ -4,11 +4,15 @@ import "./globals.css"
 import Navbar from "@/components/navbar"
 import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from "@/lib/auth-context"
+import { SignInOverlay } from "@/components/sign-in-overlay"
 
 export const metadata: Metadata = {
   title: "DrumKitzz - Create and Share Drum Kits",
   description: "Professional drum kit creation and sharing platform",
-    generator: 'v0.app'
+  generator: "v0.app",
+  icons: {
+    icon: "https://ik.imagekit.io/vv1coyjgq/drumkiitz%20favicon2.png?updatedAt=1763056413040",
+  },
 }
 
 export default function RootLayout({
@@ -21,7 +25,8 @@ export default function RootLayout({
       <body className="min-h-screen bg-background antialiased">
         <AuthProvider>
           <Navbar />
-          <main className="pt-16 md:pt-0 md:pl-48">{children}</main>
+          <SignInOverlay />
+          <main className="pt-16 md:pt-0 md:pl-52">{children}</main>
           <Toaster />
         </AuthProvider>
       </body>

@@ -1,0 +1,2696 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useRef, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Slider } from "@/components/ui/slider"
+import { Badge } from "@/components/ui/badge"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Upload,
+  Mic,
+  Play,
+  Pause,
+  Square,
+  Minus,
+  Plus,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  ChevronDown,
+  Trash,
+} from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import { YouTubeExtractor } from "@/app/components/youtube-extractor"
+import { SliceWaveform } from "@/app/components/slice-waveform"
+import { Waveform } from "@/app/components/waveform"
+import { TrimWaveform } from "@/app/components/trim-waveform"
+import { CircularWaveform } from "@/app/components/circular-waveform"
+import { Knob } from "@/app/components/knob"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { extractDrumsWithLalalAI, type ExtractionProgress } from "@/lib/audio-extraction"
+import { ExtractionProgressDialog } from "@/app/components/extraction-progress-dialog"
+import { useAuth } from "@/lib/auth-context"
+import { useRouter } from "next/navigation"
+
+// Define OfflineContext type
+type OfflineContext = OfflineAudioContext
+
+type KitOutputId = "drum-kit" | "instrument-one-shots" | "vocal-chops" | "bass-one-shots"
+
+const KIT_OUTPUT_OPTIONS: Array<{ id: KitOutputId; title: string; description: string; helper: string }> = [
+  { id: "drum-kit", title: "Drum Kit", description: "Full stems, tops, and percussion", helper: "Multi-format ready" },
+  {
+    id: "instrument-one-shots",
+    title: "Instrument One Shots",
+    description: "Keys, synth stabs, melodic hits",
+    helper: "Melodic detail",
+  },
+  { id: "vocal-chops", title: "Vocal Chops", description: "VOX hooks and phrases", helper: "Hooks unlocked" },
+  { id: "bass-one-shots", title: "Bass One Shots", description: "Low-end punches and subs", helper: "Sub-heavy" },
+]
+
+const MIN_TRIM_DURATION = 3
+const MAX_TRIM_DURATION = 60
+
+type DrumSlicerProProps = {
+  variant?: "classic" | "modern"
+}
+
+type PendingAudioSource = "upload" | "record" | "youtube"
+
+export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProps) {
+  const isModern = variant === "modern"
+  // Auth state
+  const { isAuthenticated, isLoading: authLoading } = useAuth()
+  const router = useRouter()
+
+  // Audio state
+  const [audioFile, setAudioFile] = useState<File | null>(null)
+  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null)
+  const [originalAudioBuffer, setOriginalAudioBuffer] = useState<AudioBuffer | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [isStemExtracting, setIsStemExtracting] = useState(0)
+  const [extractionProgress, setExtractionProgress] = useState<ExtractionProgress>({
+    stage: "uploading",
+    progress: 0,
+    message: "Starting extraction...",
+  })
+  const [showExtractionDialog, setShowExtractionDialog] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0)
+  const [isPaused, setIsPaused] = useState(false)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordingTime, setRecordingTime] = useState(0)
+  const [audioContextInitialized, setAudioContextInitialized] = useState(false)
+  const [volume, setVolume] = useState(0.8)
+  const [isMuted, setIsMuted] = useState(false)
+  const [useOriginalAudio, setUseOriginalAudio] = useState(false)
+  const [autoExtractDrums, setAutoExtractDrums] = useState(false)
+  const [selectedKitOutput, setSelectedKitOutput] = useState<KitOutputId>("drum-kit")
+  const [detectedOutputs, setDetectedOutputs] = useState<KitOutputId[]>([])
+  const [pendingAudioBuffer, setPendingAudioBuffer] = useState<AudioBuffer | null>(null)
+  const [pendingAudioFile, setPendingAudioFile] = useState<File | null>(null)
+  const [showTrimPreview, setShowTrimPreview] = useState(false)
+  const [trimSelection, setTrimSelection] = useState<[number, number]>([0, 0])
+  const [previewPlaybackTime, setPreviewPlaybackTime] = useState(0)
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
+  const [isUploadDragActive, setIsUploadDragActive] = useState(false)
+  const [pendingAudioSource, setPendingAudioSource] = useState<PendingAudioSource | null>(null)
+
+  // Slicing state
+  const [slices, setSlices] = useState<
+    Array<{
+      id: string
+      start: number
+      end: number
+      type: string
+      name: string
+      selected: boolean
+      fadeIn: number
+      fadeOut: number
+      fadeInShape: number
+      fadeOutShape: number
+      volume?: number
+    }>
+  >([])
+  const [potentialSlices, setPotentialSlices] = useState<Array<number>>([])
+  const [selectedSliceId, setSelectedSliceId] = useState<string | null>(null)
+  const [isCreatingSlice, setIsCreatingSlice] = useState(false)
+  const [newSliceStart, setNewSliceStart] = useState<number | null>(null)
+
+  // Add state for individual slice zoom levels and scroll positions
+  const [sliceZoomLevels, setSliceZoomLevels] = useState<Record<string, number>>({})
+  const [sliceScrollPositions, setSliceScrollPositions] = useState<Record<string, number>>({})
+
+  // Detection settings
+  const [sensitivity, setSensitivity] = useState(0.15)
+  const [minDistance, setMinDistance] = useState(0.1)
+
+  // Kit naming
+  const [kitName, setKitName] = useState("")
+  const [kitPrefix, setKitPrefix] = useState("DK2")
+  const [isEditingKitName, setIsEditingKitName] = useState(false)
+  const [hasCustomKitName, setHasCustomKitName] = useState(false)
+  const [isTyping, setIsTyping] = useState(false)
+
+  // Export settings
+  const [exportFormat, setExportFormat] = useState<"wav" | "mp3">("wav")
+  const [includeMidi, setIncludeMidi] = useState(true)
+  const [includeMetadata, setIncludeMetadata] = useState(true)
+
+  // Zoom and navigation
+  const [zoomLevel, setZoomLevel] = useState(1)
+  const [scrollPosition, setScrollPosition] = useState(0)
+  const [isZoomingIn, setIsZoomingIn] = useState(false)
+  const [isZoomingOut, setIsZoomingOut] = useState(false)
+  // Grid layout for slices
+  const [gridLayout, setGridLayout] = useState<1 | 2 | 3 | 4>(2) // Default to 2 slices per row (normal view)
+
+  // Audio context
+  const audioContext = useRef<AudioContext | null>(null)
+  const sourceNode = useRef<AudioBufferSourceNode | null>(null)
+  const gainNode = useRef<GainNode | null>(null)
+  const playbackStartTime = useRef<number>(0)
+  const pausedTime = useRef<number>(0)
+  const animationFrameId = useRef<number | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordedChunksRef = useRef<BlobPart[]>([])
+  const previewAudioContextRef = useRef<AudioContext | null>(null)
+  const previewSourceRef = useRef<AudioBufferSourceNode | null>(null)
+  const previewStartTimeRef = useRef<number | null>(null)
+  const recordingStartRef = useRef<number | null>(null)
+  const recordingRafRef = useRef<number | null>(null)
+  const offlineAudioContextRef = useRef<OfflineContext | null>(null)
+  const { toast } = useToast()
+
+  // Refs for waveform interaction
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [mousePosition, setMousePosition] = useState<number | null>(null)
+
+  // Helper function to get time from mouse position
+  const getTimeFromMousePosition = (x: number): number => {
+    if (!audioBuffer || !containerRef.current) return 0
+    const rect = containerRef.current.getBoundingClientRect()
+    const totalWidth = rect.width
+    const timePosition = (x / totalWidth) * audioBuffer.duration
+    return timePosition
+  }
+
+  // Initialize audio context with user interaction
+  const initializeAudioContext = async ({ showToast = true }: { showToast?: boolean } = {}) => {
+    if (!audioContextInitialized) {
+      try {
+        console.log('[Audio] Initializing AudioContext...')
+        // Create audio context (with webkit prefix for older Safari)
+        audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+        console.log('[Audio] AudioContext created, state:', audioContext.current.state)
+
+        // CRITICAL FOR MOBILE: Resume audio context immediately after creation
+        // This is required for iOS and mobile browsers to unlock audio
+        if (audioContext.current.state !== "running") {
+          console.log('[Audio] AudioContext not running, resuming...')
+          await audioContext.current.resume()
+          console.log('[Audio] AudioContext resumed, new state:', audioContext.current.state)
+        }
+
+        // Create gain node and connect to destination
+        gainNode.current = audioContext.current.createGain()
+        gainNode.current.connect(audioContext.current.destination)
+        console.log('[Audio] Gain node created and connected to destination')
+
+        // Set initial volume
+        if (gainNode.current) {
+          gainNode.current.gain.value = volume
+          console.log('[Audio] Initial volume set to:', volume)
+        }
+
+        setAudioContextInitialized(true)
+        console.log('[Audio] AudioContext initialized successfully')
+
+        // Show success toast
+        if (showToast) {
+          toast({
+            title: "Audio initialized",
+            description: "Audio playback is now enabled",
+          })
+        }
+      } catch (error) {
+        console.error("[Audio] Failed to initialize audio context:", error)
+        toast({
+          title: "Audio Error",
+          description: "Failed to initialize audio. Please try again.",
+          variant: "destructive",
+        })
+      }
+    } else {
+      // If already initialized, ensure it's resumed (for mobile)
+      if (audioContext.current && audioContext.current.state !== "running") {
+        try {
+          console.log('[Audio] AudioContext already initialized but not running, resuming...')
+          await audioContext.current.resume()
+          console.log('[Audio] AudioContext resumed, state:', audioContext.current.state)
+        } catch (error) {
+          console.error('[Audio] Failed to resume existing AudioContext:', error)
+        }
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (audioContextInitialized) {
+      return
+    }
+
+    let unlocked = false
+
+    const unlockAudioContext = () => {
+      if (unlocked) return
+      unlocked = true
+      initializeAudioContext({ showToast: false }).catch((error) => {
+        console.error("[Audio] Failed to unlock audio context on gesture:", error)
+      })
+    }
+
+    const events: Array<keyof WindowEventMap> = ["pointerdown", "touchstart"]
+    events.forEach((event) => window.addEventListener(event, unlockAudioContext, { once: true }))
+
+    return () => {
+      events.forEach((event) => window.removeEventListener(event, unlockAudioContext))
+    }
+  }, [audioContextInitialized])
+
+  // Create a sample audio buffer with a simple drum pattern
+  const createSampleAudioBuffer = (audioContext: AudioContext): AudioBuffer => {
+    const sampleRate = audioContext.sampleRate
+    const duration = 4 // 4 seconds of audio
+    const frameCount = sampleRate * duration
+
+    // Create an empty stereo buffer
+    const audioBuffer = audioContext.createBuffer(2, frameCount, sampleRate)
+
+    // Fill the buffer with a simple drum pattern
+    for (let channel = 0; channel < 2; channel++) {
+      const channelData = audioBuffer.getChannelData(channel)
+
+      // Create a simple kick and snare pattern
+      for (let i = 0; i < frameCount; i++) {
+        // Kick drum on beats 1 and 3
+        if (i % (sampleRate / 2) < 0.1 * sampleRate) {
+          channelData[i] = Math.sin(i * 0.01) * Math.exp(-i * 0.001) * 0.5
+        }
+
+        // Snare on beats 2 and 4
+        if ((i + sampleRate / 4) % (sampleRate / 2) < 0.1 * sampleRate) {
+          channelData[i] += (Math.random() * 2 - 1) * Math.exp(-(i % (sampleRate / 2)) * 0.001) * 0.3
+        }
+      }
+    }
+
+    return audioBuffer
+  }
+
+  // Handle continuous zooming
+  useEffect(() => {
+    let zoomInterval: NodeJS.Timeout | null = null
+
+    if (isZoomingIn) {
+      zoomInterval = setInterval(() => {
+        setZoomLevel((prev) => Math.min(50, prev + 1))
+      }, 100)
+    } else if (isZoomingOut) {
+      zoomInterval = setInterval(() => {
+        setZoomLevel((prev) => Math.max(1, prev - 1))
+      }, 100)
+    }
+
+    return () => {
+      if (zoomInterval) clearInterval(zoomInterval)
+    }
+  }, [isZoomingIn, isZoomingOut])
+
+  // Update kit prefix when kit name changes
+  useEffect(() => {
+    // Extract initials or first word characters
+    const words = kitName.split(" ")
+    if (words.length >= 2) {
+      // Use first letter of first word and first letter of last word
+      const firstInitial = words[0][0] || ""
+      const lastInitial = words[words.length - 1][0] || ""
+      // Extract any numbers from the kit name
+      const numbers = kitName.match(/\d+/)
+      const numberPart = numbers ? numbers[0] : ""
+
+      setKitPrefix(`${firstInitial}${lastInitial}${numberPart}`.toUpperCase())
+    } else if (words.length === 1 && words[0]) {
+      // Use first two letters of single word
+      setKitPrefix(words[0].substring(0, 2).toUpperCase())
+    }
+
+    // Update hasCustomKitName state based on whether kitName has content
+    setHasCustomKitName(kitName.trim() !== "")
+  }, [kitName])
+
+  // Update potential slices when sensitivity changes
+  useEffect(() => {
+    if (!audioBuffer) return
+
+    // Debounce the detection to avoid performance issues
+    const handler = setTimeout(() => {
+      const audioData = audioBuffer.getChannelData(0)
+      const sampleRate = audioBuffer.sampleRate
+      const transients = findPotentialTransients(audioData, sampleRate, sensitivity, minDistance)
+      setPotentialSlices(transients)
+    }, 300)
+
+    return () => clearTimeout(handler)
+  }, [audioBuffer, sensitivity, minDistance])
+
+  // Update volume when changed
+  useEffect(() => {
+    if (gainNode.current) {
+      gainNode.current.gain.value = isMuted ? 0 : volume
+    }
+  }, [volume, isMuted])
+
+  // Switch between original and drum stem audio
+  useEffect(() => {
+    if (useOriginalAudio && originalAudioBuffer) {
+      setAudioBuffer(originalAudioBuffer)
+      // Reset slices when switching to original audio
+      setSlices([])
+      setPotentialSlices([])
+    } else if (!useOriginalAudio && originalAudioBuffer && audioBuffer !== originalAudioBuffer) {
+      // If we have a drum stem, use it
+      // Note: This assumes extractDrumStem has been called and set a different audioBuffer
+      // If they're the same, we don't need to do anything
+    }
+  }, [useOriginalAudio, originalAudioBuffer])
+
+  // Clean up resources on unmount
+  useEffect(() => {
+    return () => {
+      if (sourceNode.current) {
+        sourceNode.current.stop()
+      }
+      if (audioContext.current && audioContext.current.state !== "closed") {
+        audioContext.current.close()
+      }
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current)
+      }
+      stopRecordingTimer()
+    }
+  }, [])
+
+  // Initialize slice zoom levels and scroll positions for new slices
+  useEffect(() => {
+    // For any new slices that don't have zoom/scroll settings yet, initialize them
+    const newZoomLevels = { ...sliceZoomLevels }
+    const newScrollPositions = { ...sliceScrollPositions }
+    let hasChanges = false
+
+    slices.forEach((slice) => {
+      if (newZoomLevels[slice.id] === undefined) {
+        newZoomLevels[slice.id] = 1
+        hasChanges = true
+      }
+      if (newScrollPositions[slice.id] === undefined) {
+        newScrollPositions[slice.id] = 0.5 // Center position
+        hasChanges = true
+      }
+    })
+
+    if (hasChanges) {
+      setSliceZoomLevels(newZoomLevels)
+      setSliceScrollPositions(newScrollPositions)
+    }
+  }, [slices])
+
+  // Handle kit name input changes
+  const handleKitNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setKitName(e.target.value)
+    setIsTyping(true)
+  }
+
+  // Handle kit name input blur
+  const handleKitNameBlur = () => {
+    setIsEditingKitName(false)
+    setIsTyping(false)
+  }
+
+  useEffect(() => {
+    if (!showTrimPreview) {
+      setPreviewPlaybackTime(trimSelection[0])
+      stopPreviewPlayback()
+      return
+    }
+
+    if (!isPreviewPlaying) {
+      setPreviewPlaybackTime(trimSelection[0])
+      return
+    }
+
+    let raf: number
+    const update = () => {
+      if (previewAudioContextRef.current && previewStartTimeRef.current !== null) {
+        const elapsed = previewAudioContextRef.current.currentTime - previewStartTimeRef.current
+        setPreviewPlaybackTime(Math.min(trimSelection[1], trimSelection[0] + elapsed))
+      }
+      raf = requestAnimationFrame(update)
+    }
+    raf = requestAnimationFrame(update)
+    return () => cancelAnimationFrame(raf)
+  }, [showTrimPreview, trimSelection, isPreviewPlaying])
+
+  const stopPreviewPlayback = () => {
+    if (previewSourceRef.current) {
+      try {
+        previewSourceRef.current.stop()
+      } catch {
+        // ignore
+      }
+      previewSourceRef.current.disconnect()
+      previewSourceRef.current = null
+    }
+    if (previewAudioContextRef.current) {
+      previewAudioContextRef.current.close()
+      previewAudioContextRef.current = null
+    }
+    previewStartTimeRef.current = null
+    setIsPreviewPlaying(false)
+  }
+
+  const startPreviewPlayback = async () => {
+    if (!pendingAudioBuffer) return
+    stopPreviewPlayback()
+    const ctx = new AudioContext()
+    const source = ctx.createBufferSource()
+    source.buffer = pendingAudioBuffer
+    source.connect(ctx.destination)
+    try {
+      await ctx.resume()
+    } catch (error) {
+      console.error("Error resuming preview context:", error)
+    }
+    previewAudioContextRef.current = ctx
+    previewSourceRef.current = source
+    const offset = trimSelection[0]
+    previewStartTimeRef.current = ctx.currentTime - offset
+    const duration = Math.min(trimSelection[1], pendingAudioBuffer.duration) - trimSelection[0]
+    source.start(0, offset, Math.max(0, duration))
+    source.onended = () => {
+      stopPreviewPlayback()
+    }
+    setPreviewPlaybackTime(offset)
+    setIsPreviewPlaying(true)
+  }
+
+  const normalizeTrimRange = (range: [number, number]) => {
+    if (!pendingAudioBuffer) return range
+    const duration = pendingAudioBuffer.duration
+    let [start, end] = range
+    if (start > end) [start, end] = [end, start]
+    start = Math.max(0, Math.min(start, duration))
+    end = Math.max(start, Math.min(end, duration))
+    let span = end - start
+    if (duration <= MIN_TRIM_DURATION) {
+      return [0, duration]
+    }
+    if (span < MIN_TRIM_DURATION) {
+      end = Math.min(duration, start + MIN_TRIM_DURATION)
+      start = Math.max(0, end - MIN_TRIM_DURATION)
+      span = MIN_TRIM_DURATION
+    }
+    if (span > MAX_TRIM_DURATION) {
+      end = Math.min(duration, start + MAX_TRIM_DURATION)
+    }
+    return [start, end]
+  }
+
+  const openTrimPreview = (buffer: AudioBuffer, file: File | null, source: PendingAudioSource) => {
+    stopPreviewPlayback()
+    setPendingAudioBuffer(buffer)
+    setPendingAudioFile(file)
+    setPendingAudioSource(source)
+    setDetectedOutputs([])
+    const end = buffer.duration < MIN_TRIM_DURATION ? buffer.duration : Math.min(MAX_TRIM_DURATION, buffer.duration)
+    setTrimSelection([0, end])
+    setShowTrimPreview(true)
+  }
+
+  const trimAudioBuffer = async (buffer: AudioBuffer, start: number, end: number) => {
+    const duration = Math.max(0.01, Math.min(buffer.duration, end) - start)
+    const offline = new OfflineAudioContext(buffer.numberOfChannels, duration * buffer.sampleRate, buffer.sampleRate)
+    const source = offline.createBufferSource()
+    source.buffer = buffer
+    source.connect(offline.destination)
+    source.start(0, start, duration)
+    return offline.startRendering()
+  }
+
+  const commitTrimSelection = async () => {
+    if (!pendingAudioBuffer) return
+    const [start, end] = trimSelection
+    const trimmed = await trimAudioBuffer(pendingAudioBuffer, start, end)
+    setAudioBuffer(trimmed)
+    setOriginalAudioBuffer(pendingAudioBuffer)
+    setShowTrimPreview(false)
+    stopPreviewPlayback()
+    setPendingAudioBuffer(null)
+    setPendingAudioFile(null)
+    setPendingAudioSource(null)
+    if (pendingAudioFile) {
+      setAudioFile(pendingAudioFile)
+      if (autoExtractDrums) {
+        extractDrumStem(pendingAudioFile)
+      }
+    } else {
+      setAudioFile(null)
+    }
+    toast({
+      title: "Selection saved",
+      description: `Trimmed ${(end - start).toFixed(1)}s window ready for slicing.`,
+    })
+  }
+
+  const stopRecordingTimer = () => {
+    if (recordingRafRef.current !== null) {
+      cancelAnimationFrame(recordingRafRef.current)
+      recordingRafRef.current = null
+    }
+    recordingStartRef.current = null
+  }
+
+  // Handle file upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // Initialize audio context if not already done
+    if (!audioContextInitialized) {
+      await initializeAudioContext()
+    }
+
+    setSlices([])
+    setPotentialSlices([])
+    setSelectedSliceId(null)
+
+    try {
+      setIsProcessing(true)
+      const arrayBuffer = await file.arrayBuffer()
+
+      if (!audioContext.current) {
+        throw new Error("Audio context not initialized")
+      }
+
+      const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer)
+
+      // Store pending buffer and open trim preview
+      openTrimPreview(decodedBuffer, file, "upload")
+      setIsProcessing(false)
+
+      toast({
+        title: "Audio prepared",
+        description: "Select a 3-60s window before slicing.",
+      })
+    } catch (error) {
+      console.error("Error decoding audio data:", error)
+      setIsProcessing(false)
+      toast({
+        title: "Error loading file",
+        description: "Failed to decode audio file. Please try a different file.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Handle drag and drop
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleUploadDragEnter = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsUploadDragActive(true)
+  }
+
+  const handleUploadDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsUploadDragActive(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsUploadDragActive(false)
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0]
+      if (file.type.includes("audio")) {
+        // Initialize audio context if not already done
+        if (!audioContextInitialized) {
+          await initializeAudioContext()
+        }
+
+        setSlices([])
+        setPotentialSlices([])
+        setSelectedSliceId(null)
+
+        try {
+          setIsProcessing(true)
+          const arrayBuffer = await file.arrayBuffer()
+
+          if (!audioContext.current) {
+            throw new Error("Audio context not initialized")
+          }
+
+          const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer)
+
+          openTrimPreview(decodedBuffer, file, "upload")
+          setIsProcessing(false)
+
+          toast({
+            title: "Audio prepared",
+            description: "Select a 3-60s window before slicing.",
+          })
+        } catch (error) {
+          console.error("Error decoding audio data:", error)
+          setIsProcessing(false)
+          toast({
+            title: "Error loading file",
+            description: "Failed to decode audio file. Please try a different file.",
+            variant: "destructive",
+          })
+        }
+      } else {
+        toast({
+          title: "Invalid file",
+          description: "Please upload an audio file",
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  const handleStartOver = () => {
+    stopPreviewPlayback()
+    setShowTrimPreview(false)
+    setPendingAudioBuffer(null)
+    setPendingAudioFile(null)
+    setDetectedOutputs([])
+    setTrimSelection([0, 0])
+    if (pendingAudioSource === "record") {
+      void startRecording()
+    } else if (pendingAudioSource === "upload") {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+        fileInputRef.current.click()
+      }
+    } else if (pendingAudioSource === "youtube") {
+      toast({
+        title: "Paste another link",
+        description: "Drop a new YouTube URL to extract fresh audio.",
+      })
+    }
+    setPendingAudioSource(null)
+  }
+
+  // Extract drum stem from audio file using external API
+  const extractDrumStem = async (audioFile: File) => {
+    if (!audioContext.current) return
+
+    try {
+      setIsStemExtracting(1)
+      setShowExtractionDialog(true)
+
+      // Always use the extraction function which calls the secure API route
+      const result = await extractDrumsWithLalalAI(audioFile, audioContext.current, (progress: ExtractionProgress) => {
+        setExtractionProgress(progress)
+      })
+
+      if (result.success && result.audioBuffer) {
+        // Set the extracted drum buffer as the current audio buffer
+        if (!useOriginalAudio) {
+          setAudioBuffer(result.audioBuffer)
+        }
+        setDetectedOutputs(["drum-kit", "instrument-one-shots", "vocal-chops", "bass-one-shots"] as KitOutputId[])
+
+        toast({
+          title: "Drum extraction complete",
+          description: "Drum stem extracted successfully",
+        })
+
+        // Auto-close dialog after 2 seconds on success
+        setTimeout(() => {
+          setShowExtractionDialog(false)
+        }, 2000)
+      } else {
+        throw new Error(result.error || "Extraction failed")
+      }
+
+      setIsStemExtracting(0)
+    } catch (error) {
+      console.error("Error extracting drum stem:", error)
+      setIsStemExtracting(0)
+
+      toast({
+        title: "Extraction error",
+        description: error instanceof Error ? error.message : "Failed to extract drum stem",
+        variant: "destructive",
+      })
+
+      // Close dialog on error
+      setTimeout(() => {
+        setShowExtractionDialog(false)
+      }, 3000)
+    }
+  }
+
+  // Start recording audio
+  const startRecording = async () => {
+    // Initialize audio context if not already done
+    if (!audioContextInitialized) {
+      await initializeAudioContext()
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      })
+      mediaRecorderRef.current = new MediaRecorder(stream)
+      recordedChunksRef.current = []
+
+      mediaRecorderRef.current.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          recordedChunksRef.current.push(e.data)
+        }
+      }
+
+      mediaRecorderRef.current.onstop = async () => {
+        const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" })
+        const arrayBuffer = await blob.arrayBuffer()
+
+        try {
+          if (!audioContext.current) {
+            throw new Error("Audio context not initialized")
+          }
+
+          const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer)
+
+          const file = new File([blob], "recording.webm", { type: "audio/webm" })
+          setSlices([])
+          setPotentialSlices([])
+          setSelectedSliceId(null)
+          openTrimPreview(decodedBuffer, file, "record")
+
+          toast({
+            title: "Recording captured",
+            description: "Trim the best 3-60 seconds before slicing.",
+          })
+        } catch (error) {
+          console.error("Error decoding recorded audio:", error)
+          toast({
+            title: "Recording error",
+            description: "Failed to process recorded audio.",
+            variant: "destructive",
+          })
+        }
+
+        // Stop all tracks to release the microphone
+        stream.getTracks().forEach((track) => track.stop())
+
+        setIsRecording(false)
+        setRecordingTime(0)
+        stopRecordingTimer()
+      }
+
+      // Start recording
+      mediaRecorderRef.current.start()
+      setIsRecording(true)
+      recordingStartRef.current = performance.now()
+      const updateRecordingTime = () => {
+        if (!recordingStartRef.current) return
+        const elapsed = (performance.now() - recordingStartRef.current) / 1000
+        setRecordingTime(Number(elapsed.toFixed(1)))
+        if (elapsed >= 60) {
+          stopRecording()
+          return
+        }
+        recordingRafRef.current = requestAnimationFrame(updateRecordingTime)
+      }
+      recordingRafRef.current = requestAnimationFrame(updateRecordingTime)
+
+      toast({
+        title: "Recording started",
+        description: "Recording audio from your microphone",
+      })
+    } catch (error) {
+      console.error("Error accessing microphone:", error)
+      toast({
+        title: "Microphone error",
+        description: "Failed to access microphone. Please check your permissions.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Stop recording
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop()
+    }
+    stopRecordingTimer()
+  }
+
+  // Find potential transients without creating slices
+  const findPotentialTransients = (
+    audioData: Float32Array,
+    sampleRate: number,
+    sensitivity: number,
+    minDistance: number,
+  ): number[] => {
+    const transients: number[] = []
+    const windowSize = 1024
+    const hopSize = 512
+
+    // Calculate energy for each window
+    const energies: number[] = []
+    for (let i = 0; i < audioData.length - windowSize; i += hopSize) {
+      let energy = 0
+      for (let j = 0; j < windowSize; j++) {
+        energy += audioData[i + j] * audioData[i + j]
+      }
+      energies.push(energy / windowSize)
+    }
+
+    // Calculate energy derivative
+    const derivatives: number[] = []
+    for (let i = 1; i < energies.length; i++) {
+      derivatives.push(energies[i] - energies[i - 1])
+    }
+
+    // Find peaks in the derivative
+    const minSampleDistance = minDistance * sampleRate
+    let lastPeakPos = -minSampleDistance
+
+    // Find the maximum derivative value to normalize sensitivity
+    let maxDerivative = 0
+    for (let i = 0; i < derivatives.length; i++) {
+      if (derivatives[i] > maxDerivative) {
+        maxDerivative = derivatives[i]
+      }
+    }
+
+    // Use a relative threshold based on the maximum derivative
+    const threshold = sensitivity * maxDerivative * 0.1
+
+    for (let i = 1; i < derivatives.length - 1; i++) {
+      if (
+        derivatives[i] > threshold &&
+        derivatives[i] > derivatives[i - 1] &&
+        derivatives[i] > derivatives[i + 1] &&
+        i * hopSize - lastPeakPos >= minSampleDistance
+      ) {
+        const positionInSeconds = (i * hopSize) / sampleRate
+        transients.push(positionInSeconds)
+        lastPeakPos = i * hopSize
+      }
+    }
+
+    return transients
+  }
+
+  // Detect slices based on transients
+  const detectSlices = async () => {
+    if (!audioBuffer) return
+
+    // Ensure audio context is initialized
+    if (!audioContextInitialized) {
+      await initializeAudioContext()
+    }
+
+    setIsProcessing(true)
+
+    try {
+      // Get audio data from the buffer
+      const audioData = audioBuffer.getChannelData(0)
+      const sampleRate = audioBuffer.sampleRate
+
+      // Use the current potential slices or detect them if none exist
+      let transients = potentialSlices
+      if (transients.length === 0) {
+        transients = findPotentialTransients(audioData, sampleRate, sensitivity, minDistance)
+      }
+
+      // Create slices from transients
+      const typeCounters: Record<string, number> = {} // Track count of each type
+      const newSlices = transients.map((position, index) => {
+        // Determine end position (either next transient or +200ms)
+        const nextPosition = transients[index + 1] ? transients[index + 1] : position + 0.2
+        const end = Math.min(nextPosition, position + 0.2)
+
+        // Guess the drum type based on frequency content
+        const type = classifyDrumSound(audioData, sampleRate, position, end)
+
+        // Increment counter for this type
+        typeCounters[type] = (typeCounters[type] || 0) + 1
+
+        // Generate a name based on the kit prefix and type
+        const name = `${kitPrefix}_${capitalizeFirstLetter(type)}_${typeCounters[type]}`
+
+        return {
+          id: `slice-${index}`,
+          start: position,
+          end: end,
+          type: type,
+          name: name,
+          selected: true, // Selected by default for export
+          fadeIn: 5,
+          fadeOut: 10,
+          fadeInShape: 0, // Default to linear fade
+          fadeOutShape: 0, // Default to linear fade
+        }
+      })
+
+      setSlices(newSlices)
+      renumberSlicesByType(newSlices)
+      // Switch to extracted view after detection
+      setIsProcessing(false)
+
+      toast({
+        title: "Slices detected",
+        description: `${newSlices.length} slices found`,
+      })
+    } catch (error) {
+      console.error("Error detecting slices:", error)
+      setIsProcessing(false)
+      toast({
+        title: "Processing error",
+        description: "An error occurred while processing the audio.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Helper function to capitalize first letter
+  const capitalizeFirstLetter = (string: string): string => {
+    return string.charAt(0).toUpperCase() + string.slice(1)
+  }
+
+  // Classify drum sound based on audio characteristics
+  const classifyDrumSound = (audioData: Float32Array, sampleRate: number, start: number, end: number): string => {
+    // Convert time positions to sample indices
+    const startSample = Math.floor(start * sampleRate)
+    const endSample = Math.floor(end * sampleRate)
+    const length = endSample - startSample
+
+    if (length <= 0) return "perc"
+
+    // Extract the sample data
+    const sampleData = audioData.slice(startSample, endSample)
+
+    // Calculate RMS energy
+    let sumSquared = 0
+    for (let i = 0; i < sampleData.length; i++) {
+      sumSquared += sampleData[i] * sampleData[i]
+    }
+    const rms = Math.sqrt(sumSquared / sampleData.length)
+
+    // Calculate zero-crossing rate
+    let zeroCrossings = 0
+    for (let i = 1; i < sampleData.length; i++) {
+      if ((sampleData[i] >= 0 && sampleData[i - 1] < 0) || (sampleData[i] < 0 && sampleData[i - 1] >= 0)) {
+        zeroCrossings++
+      }
+    }
+    const zcr = zeroCrossings / sampleData.length
+
+    // Simplified classification based on zero-crossing rate and duration
+    if (zcr < 0.05 && rms > 0.1) {
+      return "kick"
+    } else if (zcr > 0.1 && zcr < 0.2) {
+      return "snare"
+    } else if (zcr > 0.2) {
+      return "hat"
+    } else if (zcr > 0.15 && end - start > 0.15) {
+      return "tom"
+    } else if (zcr > 0.2 && end - start > 0.2) {
+      return "cymb"
+    } else {
+      return "perc"
+    }
+  }
+
+  // Handle slice selection
+  const handleSliceClick = (sliceId: string) => {
+    // If clicking the already selected slice, deselect it
+    if (sliceId === selectedSliceId) {
+      setSelectedSliceId(null)
+    } else {
+      // Play the slice immediately without waiting for state update
+      playSlice(sliceId)
+    }
+  }
+
+  // Play/pause audio
+  const togglePlayback = async () => {
+    // Ensure audio context is initialized
+    if (!audioContextInitialized) {
+      await initializeAudioContext()
+    }
+
+    if (isPlaying) {
+      pausePlayback()
+    } else {
+      if (isPaused) {
+        resumePlayback()
+      } else {
+        startPlayback()
+      }
+    }
+  }
+
+  // Start audio playback
+  const startPlayback = (startTime = 0) => {
+    if (!audioBuffer || !audioContext.current) {
+      toast({
+        title: "Playback error",
+        description: "Audio not loaded or audio context not initialized",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Resume audio context if suspended (needed for iOS)
+    if (audioContext.current.state === "suspended") {
+      audioContext.current.resume()
+    }
+
+    // Stop any current playback
+    if (sourceNode.current) {
+      sourceNode.current.stop()
+    }
+
+    // Create a new source node
+    sourceNode.current = audioContext.current.createBufferSource()
+    sourceNode.current.buffer = audioBuffer
+
+    // Connect to output
+    sourceNode.current.connect(gainNode.current!)
+    gainNode.current!.connect(audioContext.current.destination)
+
+    // Start playback
+    const currentTime = audioContext.current.currentTime
+    sourceNode.current.start(0, startTime)
+    playbackStartTime.current = currentTime - startTime
+    pausedTime.current = 0
+
+    // Update state
+    setIsPlaying(true)
+    setIsPaused(false)
+    setCurrentPlaybackTime(startTime)
+
+    // Start animation frame for updating playback position
+    const updatePlaybackPosition = () => {
+      if (!audioContext.current) return
+
+      const elapsedTime = audioContext.current.currentTime - playbackStartTime.current
+
+      if (elapsedTime < audioBuffer.duration) {
+        setCurrentPlaybackTime(elapsedTime)
+        animationFrameId.current = requestAnimationFrame(updatePlaybackPosition)
+      } else {
+        setIsPlaying(false)
+        setIsPaused(false)
+        setCurrentPlaybackTime(0)
+      }
+    }
+
+    animationFrameId.current = requestAnimationFrame(updatePlaybackPosition)
+  }
+
+  // Pause audio playback
+  const pausePlayback = () => {
+    if (!audioContext.current || !sourceNode.current) return
+
+    // Store the current playback position
+    pausedTime.current = currentPlaybackTime
+
+    // Stop the source node
+    try {
+      sourceNode.current.stop()
+    } catch (e) {
+      // Ignore errors when stopping - the node might not be started
+    }
+    sourceNode.current = null
+
+    if (animationFrameId.current) {
+      cancelAnimationFrame(animationFrameId.current)
+      animationFrameId.current = null
+    }
+
+    setIsPlaying(false)
+    setIsPaused(true)
+  }
+
+  // Resume audio playback from paused position
+  const resumePlayback = () => {
+    startPlayback(pausedTime.current)
+  }
+
+  // Stop audio playback
+  const stopPlayback = () => {
+    if (sourceNode.current) {
+      try {
+        sourceNode.current.stop()
+      } catch (e) {
+        // Ignore errors when stopping - the node might not be started
+      }
+      sourceNode.current = null
+    }
+
+    if (animationFrameId.current) {
+      cancelAnimationFrame(animationFrameId.current)
+      animationFrameId.current = null
+    }
+
+    setIsPlaying(false)
+    setIsPaused(false)
+    setCurrentPlaybackTime(0)
+    pausedTime.current = 0
+  }
+
+  // Play a specific slice
+  const playSlice = async (sliceId: string) => {
+    console.log('[Audio] playSlice called, sliceId:', sliceId)
+    // Ensure audio context is initialized
+    if (!audioContextInitialized) {
+      console.log('[Audio] AudioContext not initialized, initializing now...')
+      await initializeAudioContext()
+    }
+
+    const slice = slices.find((s) => s.id === sliceId)
+    if (!slice) {
+      console.error('[Audio] Slice not found:', sliceId)
+      return
+    }
+    if (!audioBuffer) {
+      console.error('[Audio] No audio buffer available')
+      return
+    }
+    if (!audioContext.current) {
+      console.error('[Audio] AudioContext is null')
+      return
+    }
+
+    console.log('[Audio] Playing slice:', slice.name, 'duration:', (slice.end - slice.start) * 1000, 'ms')
+    console.log('[Audio] AudioContext state before resume:', audioContext.current.state)
+
+    // Set this slice as selected first for immediate visual feedback
+    setSelectedSliceId(sliceId)
+
+    // CRITICAL FOR MOBILE: Always try to resume AudioContext before playback
+    // This is required for iOS Safari and mobile browsers
+    try {
+      if (audioContext.current.state !== "running") {
+        console.log('[Audio] AudioContext not running, attempting to resume...')
+        await audioContext.current.resume()
+        console.log('[Audio] AudioContext resumed successfully, state:', audioContext.current.state)
+      }
+    } catch (error) {
+      console.error('[Audio] Failed to resume AudioContext:', error)
+      toast({
+        title: "Audio Error",
+        description: "Could not initialize audio playback. Try tapping the screen first.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Stop any current playback
+    if (sourceNode.current) {
+      try {
+        sourceNode.current.stop()
+      } catch (e) {
+        // Ignore errors when stopping - the node might not be started
+      }
+      sourceNode.current = null
+    }
+
+    // Calculate buffer parameters
+    const startSample = Math.floor(slice.start * audioBuffer.sampleRate)
+    const endSample = Math.floor(slice.end * audioBuffer.sampleRate)
+    const length = endSample - startSample
+
+    // Create a new source node immediately
+    sourceNode.current = audioContext.current.createBufferSource()
+
+    // Create a gain node for this slice
+    const sliceGainNode = audioContext.current.createGain()
+    // CRITICAL FOR MOBILE: Ensure volume is actually set and audible
+    const effectiveVolume = isMuted ? 0 : Math.max(volume, 0.5) // Ensure minimum 0.5 volume for testing
+    sliceGainNode.gain.value = effectiveVolume
+
+    console.log('[Audio] Created source node and gain node, volume:', volume, 'effective volume:', effectiveVolume, 'muted:', isMuted)
+    console.log('[Audio] Gain value set to:', sliceGainNode.gain.value)
+
+    // CRITICAL FOR MOBILE: Connect audio graph explicitly
+    // Mobile browsers require explicit connection to destination
+    try {
+      sourceNode.current.connect(sliceGainNode)
+      sliceGainNode.connect(audioContext.current.destination)
+      console.log('[Audio] Audio nodes connected to destination successfully')
+    } catch (error) {
+      console.error('[Audio] Failed to connect audio nodes:', error)
+      toast({
+        title: "Audio Error",
+        description: "Failed to connect audio nodes",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Create the slice buffer asynchronously but start playback as soon as possible
+    const sliceBuffer = audioContext.current.createBuffer(audioBuffer.numberOfChannels, length, audioBuffer.sampleRate)
+
+    // Process audio data in chunks to avoid blocking the main thread
+    const processAudioData = () => {
+      // Copy data from original buffer to slice buffer with fades applied
+      for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+        const originalData = audioBuffer.getChannelData(channel)
+        const sliceData = sliceBuffer.getChannelData(channel)
+
+        // Apply fade in
+        const fadeInSamples = Math.floor((slice.fadeIn / 1000) * audioBuffer.sampleRate)
+
+        // Apply fade out
+        const fadeOutSamples = Math.floor((slice.fadeOut / 1000) * audioBuffer.sampleRate)
+
+        for (let i = 0; i < length; i++) {
+          // Get the sample from the original buffer
+          let sample = originalData[startSample + i]
+
+          // Apply fade in
+          if (i < fadeInSamples && fadeInSamples > 0) {
+            const fadeInGain = i / fadeInSamples
+            sample *= fadeInGain
+          }
+
+          // Apply fade out
+          if (i > length - fadeOutSamples && fadeOutSamples > 0) {
+            const fadeOutGain = (length - i) / fadeOutSamples
+            sample *= fadeOutGain
+          }
+
+          sliceData[i] = sample
+        }
+      }
+
+      // Set the buffer and start playback
+      if (sourceNode.current) {
+        sourceNode.current.buffer = sliceBuffer
+        console.log('[Audio] Starting playback now...')
+        console.log('[Audio] AudioContext state right before start():', audioContext.current?.state)
+        console.log('[Audio] Destination channels:', audioContext.current?.destination.channelCount)
+        console.log('[Audio] Sample rate:', audioContext.current?.sampleRate)
+
+        try {
+          sourceNode.current.start(0)
+          console.log('[Audio] Playback started successfully')
+          console.log('[Audio] Source node state after start - should be playing')
+        } catch (error) {
+          console.error('[Audio] FAILED to start source node:', error)
+          toast({
+            title: "Playback Error",
+            description: "Failed to start audio playback. " + (error as Error).message,
+            variant: "destructive",
+          })
+        }
+      }
+    }
+
+    // Process audio data immediately
+    processAudioData()
+
+    // Show toast notification after playback has started
+    setTimeout(() => {
+      toast({
+        title: `Playing ${slice.type}`,
+        description: `${slice.name} (${((slice.end - slice.start) * 1000).toFixed(0)}ms)`,
+        duration: 1500,
+      })
+    }, 0)
+
+    // Set timeout to update state when playback ends
+    setTimeout(
+      () => {
+        sourceNode.current = null
+      },
+      (slice.end - slice.start) * 1000,
+    )
+  }
+
+  // Helper functions for export
+  const bufferToWav = (buffer: AudioBuffer): Promise<Blob> => {
+    return new Promise((resolve) => {
+      const numberOfChannels = buffer.numberOfChannels
+      const length = buffer.length * numberOfChannels * 2
+      const sampleRate = buffer.sampleRate
+
+      // Create the WAV file header
+      const wavHeader = new ArrayBuffer(44)
+      const view = new DataView(wavHeader)
+
+      // "RIFF" chunk descriptor
+      writeString(view, 0, "RIFF")
+      view.setUint32(4, 36 + length, true)
+      writeString(view, 8, "WAVE")
+
+      // "fmt " sub-chunk
+      writeString(view, 12, "fmt ")
+      view.setUint32(16, 16, true) // fmt chunk size
+      view.setUint16(20, 1, true) // audio format (1 for PCM)
+      view.setUint16(22, numberOfChannels, true)
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate * numberOfChannels * 2, true) // byte rate
+      view.setUint16(32, numberOfChannels * 2, true) // block align
+      view.setUint16(34, 16, true) // bits per sample
+
+      // "data" sub-chunk
+      writeString(view, 36, "data")
+      view.setUint32(40, length, true)
+
+      // Create the audio data
+      const audioData = new Int16Array(buffer.length * numberOfChannels)
+
+      // Interleave the channels
+      for (let channel = 0; channel < numberOfChannels; channel++) {
+        const channelData = buffer.getChannelData(channel)
+        for (let i = 0; i < buffer.length; i++) {
+          // Convert float to int16
+          const sample = Math.max(-1, Math.min(1, channelData[i]))
+          audioData[i * numberOfChannels + channel] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+        }
+      }
+
+      // Combine header and audio data
+      const wavBlob = new Blob([wavHeader, audioData], { type: "audio/wav" })
+      resolve(wavBlob)
+    })
+  }
+
+  const bufferToMp3 = async (buffer: AudioBuffer): Promise<Blob> => {
+    // Simplified MP3 encoding (in a real app, use a proper encoder)
+    return bufferToWav(buffer) // Fallback to WAV for this demo
+  }
+
+  const generateMidiFile = (slices: typeof slices): Blob => {
+    // Simplified MIDI generation
+    return new Blob(["MIDI data placeholder"], { type: "audio/midi" })
+  }
+
+  const generateMetadataFile = (slices: typeof slices): string => {
+    let metadata = `${kitName || "Untitled Drum Kit"} - Metadata\n`
+    metadata += `====================\n\n`
+    metadata += `Slices: ${slices.length}\n\n`
+
+    slices.forEach((slice, index) => {
+      metadata += `${index + 1}. ${slice.name}\n`
+      metadata += `   Type: ${slice.type}\n`
+      metadata += `   Duration: ${(slice.end - slice.start).toFixed(3)}s\n\n`
+    })
+
+    return metadata
+  }
+
+  // Helper function to write string to DataView
+  const writeString = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i))
+    }
+  }
+
+  // Export selected slices
+  const exportSlices = async () => {
+    if (!audioBuffer || slices.length === 0) return
+
+    const selectedSlices = slices.filter((slice) => slice.selected)
+    if (selectedSlices.length === 0) {
+      toast({
+        title: "Export error",
+        description: "No slices selected for export",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsProcessing(true)
+
+    try {
+      // Create a zip file with all samples
+      const { default: JSZip } = await import("jszip")
+      const zip = new JSZip()
+
+      // Group slices by type
+      const slicesByType: Record<string, typeof slices> = {}
+      selectedSlices.forEach((slice) => {
+        if (!slicesByType[slice.type]) {
+          slicesByType[slice.type] = []
+        }
+        slicesByType[slice.type].push(slice)
+      })
+
+      // Process each selected slice
+      const promises = selectedSlices.map(async (slice) => {
+        try {
+          // Extract the slice from the audio buffer
+          const startSample = Math.floor(slice.start * audioBuffer.sampleRate)
+          const endSample = Math.floor(slice.end * audioBuffer.sampleRate)
+          const length = endSample - startSample
+
+          // Create a new buffer for this slice
+          const sliceBuffer = audioContext.current!.createBuffer(
+            audioBuffer.numberOfChannels,
+            length,
+            audioBuffer.sampleRate,
+          )
+
+          // Copy data from original buffer to slice buffer
+          for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+            const originalData = audioBuffer.getChannelData(channel)
+            const sliceData = sliceBuffer.getChannelData(channel)
+
+            // Apply fade in
+            const fadeInSamples = Math.floor((slice.fadeIn / 1000) * audioBuffer.sampleRate)
+
+            // Apply fade out
+            const fadeOutSamples = Math.floor((slice.fadeOut / 1000) * audioBuffer.sampleRate)
+
+            for (let i = 0; i < length; i++) {
+              // Get the sample from the original buffer
+              let sample = originalData[startSample + i]
+
+              // Apply fade in
+              if (i < fadeInSamples && fadeInSamples > 0) {
+                const fadeInGain = i / fadeInSamples
+                sample *= fadeInGain
+              }
+
+              // Apply fade out
+              if (i > length - fadeOutSamples && fadeOutSamples > 0) {
+                const fadeOutGain = (length - i) / fadeOutSamples
+                sample *= fadeOutGain
+              }
+
+              sliceData[i] = sample
+            }
+          }
+
+          // Convert buffer to audio format
+          const audioBlob = exportFormat === "wav" ? await bufferToWav(sliceBuffer) : await bufferToMp3(sliceBuffer)
+
+          // Add to zip in a subfolder based on type
+          const folderName = capitalizeFirstLetter(slice.type)
+          zip.file(`${folderName}/${slice.name}.${exportFormat}`, audioBlob)
+        } catch (error) {
+          console.error(`Error processing slice ${slice.id}:`, error)
+        }
+      })
+
+      // Generate MIDI file if requested
+      if (includeMidi) {
+        const midiData = generateMidiFile(selectedSlices)
+        zip.file(`${kitPrefix}_MIDI_Map.mid`, midiData)
+      }
+
+      // Generate metadata file if requested
+      if (includeMetadata) {
+        const metadata = generateMetadataFile(selectedSlices)
+        zip.file(`${kitPrefix}_metadata.txt`, metadata)
+
+        // Also create a metadata file for each type
+        Object.entries(slicesByType).forEach(([type, typeSlices]) => {
+          const typeMetadata = generateTypeMetadataFile(type, typeSlices)
+          zip.file(`${capitalizeFirstLetter(type)}/${type}_metadata.txt`, typeMetadata)
+        })
+      }
+
+      // Generate and download the zip file
+      await Promise.all(promises)
+      const content = await zip.generateAsync({ type: "blob" })
+
+      const url = URL.createObjectURL(content)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${kitName || "Untitled_Drum_Kit"}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setIsProcessing(false)
+      toast({
+        title: "Export complete",
+        description: `${selectedSlices.length} slices exported successfully`,
+      })
+    } catch (error) {
+      console.error("Error exporting slices:", error)
+      setIsProcessing(false)
+      toast({
+        title: "Export error",
+        description: "An error occurred while exporting slices.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const generateTypeMetadataFile = (type: string, slices: typeof slices): string => {
+    let metadata = `${kitName || "Untitled Drum Kit"} - ${capitalizeFirstLetter(type)} Samples\n`
+    metadata += `====================\n\n`
+    metadata += `${type.toUpperCase()} Slices: ${slices.length}\n\n`
+
+    slices.forEach((slice, index) => {
+      metadata += `${index + 1}. ${slice.name}\n`
+      metadata += `   Duration: ${(slice.end - slice.start).toFixed(3)}s\n`
+      metadata += `   Fade In: ${slice.fadeIn}ms\n`
+      metadata += `   Fade Out: ${slice.fadeOut}ms\n\n`
+    })
+
+    return metadata
+  }
+
+  // Handle marker drag in the main waveform
+  const handleMarkerDrag = (sliceId: string, type: "start" | "end", position: number, isDoubleClick = false) => {
+    if (isDoubleClick) {
+      removeSlice(sliceId)
+      return
+    }
+
+    const slice = slices.find((s) => s.id === sliceId)
+    if (!slice) return
+
+    if (type === "start" && position < slice.end - 0.01) {
+      updateSlice(sliceId, { start: position })
+    } else if (type === "end" && position > slice.start + 0.01) {
+      updateSlice(sliceId, { end: position })
+    }
+  }
+
+  // Handle waveform click for creating new slices
+  const handleWaveformClick = (position: number, isDoubleClick: boolean) => {
+    if (isDoubleClick) {
+      // Create a new slice with default duration
+      const start = Math.max(0, position - 0.05)
+      const end = Math.min(audioBuffer!.duration, position + 0.15)
+      createNewSlice(start, end)
+    } else if (isCreatingSlice) {
+      // Finish creating a slice
+      if (newSliceStart !== null) {
+        const start = Math.min(newSliceStart, position)
+        const end = Math.max(newSliceStart, position)
+        createNewSlice(start, end)
+        setIsCreatingSlice(false)
+        setNewSliceStart(null)
+      }
+    } else {
+      // Start creating a slice
+      setIsCreatingSlice(true)
+      setNewSliceStart(position)
+    }
+  }
+
+  // Handle waveform mouse up for creating new slices
+  const handleWaveformMouseUp = (position: number) => {
+    if (isCreatingSlice && newSliceStart !== null) {
+      const start = Math.min(newSliceStart, position)
+      const end = Math.max(newSliceStart, position)
+
+      // Only create if there's a meaningful duration
+      if (end - start > 0.01) {
+        createNewSlice(start, end)
+      }
+
+      setIsCreatingSlice(false)
+      setNewSliceStart(null)
+    }
+  }
+
+  // Create a new slice
+  const createNewSlice = (start: number, end: number) => {
+    // Check if the new slice overlaps with existing slices
+    const overlaps = slices.some(
+      (slice) => (start >= slice.start && start <= slice.end) || (end >= slice.start && end <= slice.end),
+    )
+
+    if (overlaps) {
+      toast({
+        title: "Slice overlap",
+        description: "Cannot create overlapping slices",
+        variant: "destructive",
+      })
+      return false
+    }
+
+    // Get audio data for classification
+    const audioData = audioBuffer!.getChannelData(0)
+    const sampleRate = audioBuffer!.sampleRate
+    const type = classifyDrumSound(audioData, sampleRate, start, end)
+
+    // Generate a unique ID
+    const id = `slice-${Date.now()}`
+
+    // Generate a name based on the kit prefix and type
+    const name = generateSliceName(kitPrefix, type, slices)
+
+    // Create the new slice
+    const newSlice = {
+      id,
+      start,
+      end,
+      type,
+      name,
+      selected: true,
+      fadeIn: 5,
+      fadeOut: 10,
+      fadeInShape: 0,
+      fadeOutShape: 0,
+    }
+
+    // Add the new slice to the slices array
+    setSlices([...slices, newSlice])
+    return true
+  }
+
+  // Update slice properties
+  const updateSlice = (sliceId: string, updates: Partial<(typeof slices)[0]>) => {
+    // Find the slice to update
+    const sliceIndex = slices.findIndex((slice) => slice.id === sliceId)
+    if (sliceIndex === -1) return
+
+    const updatedSlices = [...slices]
+    const currentSlice = updatedSlices[sliceIndex]
+
+    // Handle type change - update name and renumber
+    if (updates.type !== undefined && updates.type !== currentSlice.type) {
+      // Update the slice with the new type
+      updatedSlices[sliceIndex] = {
+        ...currentSlice,
+        ...updates,
+        type: updates.type,
+      }
+
+      // After changing this slice's type, we need to renumber all slices
+      renumberSlicesByType(updatedSlices)
+
+      // Set the updated slices
+      setSlices(updatedSlices)
+    } else {
+      // For non-type updates, just update the slice directly
+      setSlices(slices.map((slice) => (slice.id === sliceId ? { ...slice, ...updates } : slice)))
+    }
+  }
+
+  // Generate a name for a slice based on type and existing slices
+  const generateSliceName = (
+    prefix: string,
+    type: string,
+    allSlices: typeof slices,
+    currentSliceId?: string,
+  ): string => {
+    // Get all slices of this type, excluding the current slice if provided
+    const slicesOfType = allSlices.filter(
+      (slice) => slice.type === type && (currentSliceId === undefined || slice.id !== currentSliceId),
+    )
+
+    // Find the next available number
+    let nextNumber = 1
+    const usedNumbers = new Set(
+      slicesOfType.map((slice) => {
+        // Extract number from the name (e.g., "DK_Kick_3" -> 3)
+        const match = slice.name.match(/_(\d+)$/)
+        return match ? Number.parseInt(match[1], 10) : 0
+      }),
+    )
+
+    while (usedNumbers.has(nextNumber)) {
+      nextNumber++
+    }
+
+    return `${prefix}_${capitalizeFirstLetter(type)}_${nextNumber}`
+  }
+
+  // Renumber all slices by type to ensure sequential numbering
+  const renumberSlicesByType = (slices: typeof slices): void => {
+    // Group slices by type
+    const slicesByType: Record<string, typeof slices> = {}
+
+    slices.forEach((slice) => {
+      if (!slicesByType[slice.type]) {
+        slicesByType[slice.type] = []
+      }
+      slicesByType[slice.type].push(slice)
+    })
+
+    // Sort each group by start time and renumber
+    Object.keys(slicesByType).forEach((type) => {
+      const typeSlices = slicesByType[type].sort((a, b) => a.start - b.start)
+
+      typeSlices.forEach((slice, index) => {
+        slice.name = `${kitPrefix}_${capitalizeFirstLetter(type)}_${index + 1}`
+      })
+    })
+  }
+
+  // Remove slice
+  const removeSlice = (sliceId: string) => {
+    // Find the slice to remove
+    const sliceIndex = slices.findIndex((slice) => slice.id === sliceId)
+    if (sliceIndex === -1) return
+
+    // Simply remove the slice without modifying adjacent slices
+    const updatedSlices = [...slices]
+    updatedSlices.splice(sliceIndex, 1)
+    setSlices(updatedSlices)
+
+    // If this was the selected slice, clear selection
+    if (selectedSliceId === sliceId) {
+      setSelectedSliceId(null)
+    }
+  }
+
+  // Handle zoom and scroll changes for individual slices
+  const handleSliceZoomChange = (sliceId: string, newZoom: number) => {
+    setSliceZoomLevels((prev) => ({
+      ...prev,
+      [sliceId]: newZoom,
+    }))
+  }
+
+  const handleSliceScrollChange = (sliceId: string, newScroll: number) => {
+    setSliceScrollPositions((prev) => ({
+      ...prev,
+      [sliceId]: newScroll,
+    }))
+  }
+
+  // Add handlers for fade shape changes
+  const handleFadeInShapeChange = (sliceId: string, newShape: number) => {
+    updateSlice(sliceId, { fadeInShape: newShape })
+  }
+
+  const handleFadeOutShapeChange = (sliceId: string, newShape: number) => {
+    updateSlice(sliceId, { fadeOutShape: newShape })
+  }
+
+  // Render the landing page or the full application based on whether an audio file is loaded
+  return (
+    <main className="flex flex-col items-center justify-center p-2 md:p-8 max-w-full overflow-x-hidden">
+      {/* Extraction Progress Dialog */}
+      <ExtractionProgressDialog
+        isOpen={showExtractionDialog}
+        progress={extractionProgress}
+        onClose={() => setShowExtractionDialog(false)}
+      />
+      <Dialog
+        open={showTrimPreview}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowTrimPreview(false)
+            stopPreviewPlayback()
+          }
+        }}
+      >
+        <DialogContent className="w-full max-w-3xl border border-white/10 bg-[#07040d] text-white">
+          <DialogHeader>
+            <DialogTitle>Trim your audio</DialogTitle>
+            <DialogDescription className="text-white/60">
+              Choose a 3–60s window before slicing. Drag across the waveform or adjust the handles.
+            </DialogDescription>
+          </DialogHeader>
+          {pendingAudioBuffer && (
+            <div className="space-y-4">
+              <TrimWaveform
+                audioBuffer={pendingAudioBuffer}
+                selection={trimSelection}
+                playbackTime={previewPlaybackTime}
+                className="h-40"
+                onSelectRange={(range) => setTrimSelection(normalizeTrimRange(range))}
+              />
+              <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-wrap gap-4 text-white/80">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-white/50">Start</p>
+                    <p className="text-lg font-semibold">{trimSelection[0].toFixed(2)}s</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-white/50">End</p>
+                    <p className="text-lg font-semibold">{Math.min(pendingAudioBuffer.duration, trimSelection[1]).toFixed(2)}s</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-white/50">Duration</p>
+                    <p className="text-lg font-semibold">
+                      {(Math.min(pendingAudioBuffer.duration, trimSelection[1]) - trimSelection[0]).toFixed(2)}s
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="rounded-full border border-white/10 text-white/70 hover:bg-white/10"
+                    onClick={() => {
+                      if (pendingAudioBuffer) {
+                        const end =
+                          pendingAudioBuffer.duration < MIN_TRIM_DURATION
+                            ? pendingAudioBuffer.duration
+                            : Math.min(MAX_TRIM_DURATION, pendingAudioBuffer.duration)
+                        setTrimSelection([0, end])
+                        stopPreviewPlayback()
+                      }
+                    }}
+                  >
+                    Reset selection
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="rounded-full border border-white/10 text-white hover:border-amber-200/60 hover:text-white"
+                    onClick={handleStartOver}
+                  >
+                    Start over
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="rounded-full border border-white/10 text-white/80 hover:border-amber-200/60 hover:bg-white/10"
+                    onClick={() => {
+                      if (isPreviewPlaying) {
+                        stopPreviewPlayback()
+                      } else {
+                        void startPreviewPlayback()
+                      }
+                    }}
+                  >
+                    {isPreviewPlaying ? (
+                      <>
+                        <Pause className="h-4 w-4" />
+                        <span className="sr-only">Pause preview</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-4 w-4" />
+                        <span className="sr-only">Play preview</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 md:flex-row md:justify-between">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="rounded-full border border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
+                  onClick={() => {
+                    stopPreviewPlayback()
+                    setShowTrimPreview(false)
+                    setPendingAudioBuffer(null)
+                    setPendingAudioFile(null)
+                    setPendingAudioSource(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="rounded-full bg-primary text-primary-foreground hover:brightness-110"
+                  disabled={trimSelection[1] - trimSelection[0] < MIN_TRIM_DURATION}
+                  onClick={commitTrimSelection}
+                >
+                  Save selection
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {!audioBuffer ? (
+        <div className="w-full max-w-6xl space-y-10 px-4 py-6 lg:px-0">
+          <input ref={fileInputRef} type="file" accept="audio/*" className="hidden" onChange={handleFileUpload} />
+          <div className="grid gap-6 lg:grid-cols-[1.15fr,0.9fr]">
+            <div className="rounded-[32px] border border-white/10 bg-white/5 p-6 text-left shadow-[0_25px_80px_rgba(5,5,7,0.65)]">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.4em] text-white/50">Auto extract</p>
+                  <h1 className="font-display text-3xl text-white">Select kit output</h1>
+                  <p className="text-sm text-white/60">Enable to choose a stem type before slicing.</p>
+                </div>
+                <div className="flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-4 py-2 text-sm text-white/70">
+                  <Checkbox
+                    id="auto-extract"
+                    checked={autoExtractDrums}
+                    onCheckedChange={(checked) => setAutoExtractDrums(!!checked)}
+                  />
+                  <Label htmlFor="auto-extract" className="cursor-pointer text-white">
+                    Auto extract
+                  </Label>
+                </div>
+              </div>
+              {!autoExtractDrums && (
+                <p className="mt-4 text-sm text-white/50">Enable auto extract to unlock stem-specific exports.</p>
+              )}
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {KIT_OUTPUT_OPTIONS.map((option) => {
+                  const active = selectedKitOutput === option.id
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      disabled={!autoExtractDrums}
+                      onClick={() => setSelectedKitOutput(option.id)}
+                      className={`rounded-2xl border px-4 py-4 text-left transition ${
+                        active
+                          ? "border-amber-400 bg-amber-400/10 text-white"
+                          : "border-white/10 bg-black/10 text-white/80 hover:border-amber-200/40"
+                      } ${!autoExtractDrums ? "cursor-not-allowed opacity-40" : ""}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold">{option.title}</p>
+                        <span className="text-xs text-white/50">{option.helper}</span>
+                      </div>
+                      <p className="text-sm text-white/60">{option.description}</p>
+                    </button>
+                  )
+                })}
+              </div>
+              {autoExtractDrums &&
+                detectedOutputs.length > 0 &&
+                !detectedOutputs.includes(selectedKitOutput) && (
+                  <div className="mt-4 rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+                    Audio does not contain the selected output. Try another stem type.
+                  </div>
+                )}
+            </div>
+            <div className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-[28px] border border-white/10 bg-white/5 p-4 text-left text-white shadow">
+                  <div className="flex items-center justify-between text-white/70">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.4em]">Upload</p>
+                      <p className="font-semibold text-white">Drop stems or mixes</p>
+                    </div>
+                    <Upload className="h-4 w-4 text-white/50" />
+                  </div>
+                  <div
+                    className={`mt-4 cursor-pointer rounded-2xl border border-dashed border-white/20 bg-black/20 p-4 text-center text-sm text-white/70 transition ${
+                      isUploadDragActive ? "border-amber-300/80 shadow-[0_0_25px_rgba(245,217,122,0.35)]" : "hover:border-amber-300/60"
+                    }`}
+                    onDragOver={handleDragOver}
+                    onDragEnter={handleUploadDragEnter}
+                    onDragLeave={handleUploadDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <p className="text-base font-semibold text-white">Select audio file</p>
+                    <p className="text-xs text-white/60">or drag & drop MP3, WAV, AIFF</p>
+                  </div>
+                </div>
+                <div className="rounded-[28px] border border-white/10 bg-white/5 p-4 text-left text-white shadow">
+                  <div className="flex items-center justify-between text-white/70">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.4em]">Record</p>
+                      <p className="font-semibold text-white">Capture 5–60s ideas</p>
+                    </div>
+                    <Mic className="h-4 w-4 text-white/50" />
+                  </div>
+                  <p className="mt-2 text-xs text-white/60">
+                    Capture a melody, groove, or voice note. We’ll auto-trim the noise.
+                  </p>
+                  <div className="mt-4">
+                    {isRecording ? (
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center gap-2 text-amber-300">
+                          <span className="animate-pulse">●</span>
+                          Recording {recordingTime.toFixed(1)}s / 60s
+                        </div>
+                        <Button onClick={stopRecording} variant="destructive" className="w-full rounded-full">
+                          Stop recording
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button onClick={startRecording} className="w-full rounded-full bg-amber-400 text-black hover:bg-amber-300">
+                        Record audio (5–60s)
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-[28px] border border-white/10 bg-white/5 p-4 text-left text-white shadow">
+                <div className="flex items-center justify-between text-white/70">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.4em]">YouTube</p>
+                    <p className="font-semibold text-white">Pull audio from links</p>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <YouTubeExtractor onAudioExtracted={async (blob, title) => {
+                      const file = new File([blob], `${title}.mp3`, { type: "audio/mpeg" })
+                      if (!audioContextInitialized) {
+                        await initializeAudioContext()
+                      }
+                      setSlices([])
+                      setPotentialSlices([])
+                      setSelectedSliceId(null)
+                      ;(async () => {
+                        try {
+                          setIsProcessing(true)
+                          if (!audioContext.current) {
+                            throw new Error("Audio context not initialized")
+                          }
+                          const sampleBuffer = createSampleAudioBuffer(audioContext.current)
+                          openTrimPreview(sampleBuffer, file, "youtube")
+                          setIsProcessing(false)
+                          toast({
+                            title: "YouTube audio ready",
+                            description: "Trim the hook before slicing.",
+                          })
+                        } catch (error) {
+                          console.error("Error processing audio data:", error)
+                          setIsProcessing(false)
+                          toast({
+                            title: "Error loading audio",
+                            description: "Failed to process audio from YouTube. Using a sample drum pattern instead.",
+                            variant: "destructive",
+                          })
+                          if (audioContext.current) {
+                            const fallbackBuffer = createSampleAudioBuffer(audioContext.current)
+                            openTrimPreview(fallbackBuffer, null, "youtube")
+                          }
+                        }
+                      })()
+                    }} isProcessing={isProcessing} setIsProcessing={setIsProcessing} />
+                </div>
+                <p className="mt-2 text-xs text-white/60">
+                  Need lossless results? Use upload for highest fidelity, record for sketches, or YouTube for instant inspiration.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-[32px] border border-white/10 bg-gradient-to-r from-[#12100b] to-[#18140a] p-8 text-left shadow-[0_25px_80px_rgba(8,6,2,0.6)]">
+            <Badge className="bg-white/10 text-white">Slicer flow v2</Badge>
+            <h2 className="mt-4 font-display text-3xl text-white">Slice faster. Sound richer. Drop kits that feel like tomorrow.</h2>
+            <p className="mt-3 text-white/70">
+              DrumKitzz reimagines extraction with glass control rooms, gradient overlays, and AI metadata that’s marketplace ready.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              {!isAuthenticated && (
+                <Button
+                  className="rounded-full bg-amber-400 text-black hover:bg-amber-300"
+                  onClick={() => router.push("/home?signup=true")}
+                >
+                  Sign up
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                className="rounded-full border border-white/30 text-white hover:bg-white/10"
+                onClick={() => router.push("/marketplace")}
+              >
+                Explore kits
+              </Button>
+            </div>
+            <p className="mt-4 text-sm text-white/60">Scroll down to see today’s featured kits.</p>
+          </div>
+        </div>
+      ) : (
+        // Full application with audio loaded - using the new compact layout
+        <div className="container mx-auto py-2 md:py-4 w-full">
+          {/* Kit name heading - replace the existing h2 with this interactive version */}
+          <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-200 w-full px-2 sm:px-0">
+            {isEditingKitName ? (
+              <input
+                type="text"
+                value={kitName}
+                onChange={handleKitNameChange}
+                onBlur={handleKitNameBlur}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setIsEditingKitName(false)
+                    setIsTyping(false)
+                  }
+                }}
+                className="text-xl sm:text-2xl font-bold bg-transparent border-b-2 border-primary outline-none w-full"
+                autoFocus
+                placeholder="Untitled Drum Kit"
+              />
+            ) : (
+              <h2
+                className="text-xl sm:text-2xl font-bold cursor-pointer hover:text-primary transition-colors flex items-center gap-2"
+                onClick={() => setIsEditingKitName(true)}
+              >
+                {kitName || "Untitled Drum Kit"}
+                {!isTyping && !hasCustomKitName && (
+                  <span className="text-muted-foreground">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="sm:w-[18px] sm:h-[18px]"
+                    >
+                      <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                      <path d="m15 5 4 4" />
+                    </svg>
+                  </span>
+                )}
+              </h2>
+            )}
+          </div>
+
+          {/* Waveform */}
+          <div
+            className={`mb-4 overflow-hidden ${
+              isModern
+                ? "h-[220px] rounded-[32px] border border-white/10 bg-black/20 p-6"
+                : "h-[120px] sm:h-[160px] rounded-md bg-muted"
+            }`}
+          >
+            {audioBuffer &&
+              (isModern ? (
+                <CircularWaveform
+                  audioBuffer={audioBuffer}
+                  slices={slices}
+                  potentialSlices={potentialSlices}
+                  currentTime={currentPlaybackTime}
+                  selectedSliceId={selectedSliceId}
+                  onSliceClick={handleSliceClick}
+                  onMarkerDrag={handleMarkerDrag}
+                  onWaveformClick={handleWaveformClick}
+                  onWaveformMouseUp={handleWaveformMouseUp}
+                />
+              ) : (
+                <Waveform
+                  audioBuffer={audioBuffer}
+                  slices={slices}
+                  potentialSlices={potentialSlices}
+                  currentTime={currentPlaybackTime}
+                  zoomLevel={zoomLevel}
+                  scrollPosition={scrollPosition}
+                  onScrollChange={setScrollPosition}
+                  onZoomChange={(newZoom) => setZoomLevel(newZoom)}
+                  onSliceClick={handleSliceClick}
+                  onMarkerDrag={handleMarkerDrag}
+                  onWaveformClick={handleWaveformClick}
+                  onWaveformMouseUp={handleWaveformMouseUp}
+                  isCreatingSlice={isCreatingSlice}
+                  newSliceStart={newSliceStart}
+                />
+              ))}
+          </div>
+
+          {/* Controls bar - reorganized without kit name input */}
+          <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 mb-6">
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-start mb-2 sm:mb-0">
+              {/* Playback controls */}
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-full h-10 w-10 bg-transparent"
+                onClick={() => {
+                  const newZoom = Math.max(1, zoomLevel - 1)
+                  setZoomLevel(newZoom)
+                }}
+                onMouseDown={() => setIsZoomingOut(true)}
+                onMouseUp={() => setIsZoomingOut(false)}
+                onMouseLeave={() => setIsZoomingOut(false)}
+              >
+                <Minus className="h-4 w-4" />
+              </Button>
+
+              <Button
+                variant={isPlaying ? "secondary" : "default"}
+                size="icon"
+                className="rounded-full h-12 w-12 sm:h-10 sm:w-10"
+                onClick={togglePlayback}
+              >
+                {isPlaying ? (
+                  <Pause className="h-5 w-5 sm:h-4 sm:w-4" />
+                ) : (
+                  <Play className="h-5 w-5 sm:h-4 sm:w-4 ml-0.5" />
+                )}
+              </Button>
+
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-full h-10 w-10 bg-transparent"
+                onClick={stopPlayback}
+              >
+                <Square className="h-4 w-4" />
+              </Button>
+
+              <Button
+                variant="outline"
+                size="icon"
+                className="rounded-full h-10 w-10 bg-transparent"
+                onClick={() => {
+                  const newZoom = Math.min(50, zoomLevel + 1)
+                  setZoomLevel(newZoom)
+                }}
+                onMouseDown={() => setIsZoomingIn(true)}
+                onMouseUp={() => setIsZoomingIn(false)}
+                onMouseLeave={() => setIsZoomingIn(false)}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="flex-1 hidden sm:block"></div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-end">
+              <Button onClick={detectSlices} disabled={isProcessing} className="h-10">
+                Detect & Slice
+              </Button>
+
+              <Button
+                onClick={exportSlices}
+                disabled={isProcessing || slices.length === 0}
+                variant="outline"
+                className="h-10 bg-transparent"
+              >
+                Export Selected
+              </Button>
+
+              {/* Settings dropdown with scrollable content */}
+              <div className="relative">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="icon" className="h-10 w-10 bg-transparent">
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-[calc(100vw-2rem)] sm:w-80 max-h-[70vh] overflow-y-auto">
+                    <DropdownMenuLabel>Kit Settings</DropdownMenuLabel>
+                    <DropdownMenuItem className="p-2 h-auto focus:bg-transparent">
+                      <div className="w-full space-y-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="kit-name">Kit Name</Label>
+                          <Input
+                            id="kit-name"
+                            value={kitName}
+                            onChange={(e) => setKitName(e.target.value)}
+                            placeholder="Untitled Drum Kit"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="sample-prefix">Sample Prefix</Label>
+                          <Input id="sample-prefix" value={kitPrefix} onChange={(e) => setKitPrefix(e.target.value)} />
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Detection Settings</DropdownMenuLabel>
+                    <DropdownMenuItem className="p-2 h-auto focus:bg-transparent">
+                      <div className="w-full space-y-4">
+                        <div className="space-y-2">
+                          <Label>Sensitivity: {sensitivity.toFixed(2)}</Label>
+                          <Slider
+                            value={[sensitivity]}
+                            min={0.01}
+                            max={0.5}
+                            step={0.01}
+                            onValueChange={(value) => setSensitivity(value[0])}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Min Distance: {minDistance.toFixed(2)}s</Label>
+                          <Slider
+                            value={[minDistance]}
+                            min={0.01}
+                            max={0.5}
+                            step={0.01}
+                            onValueChange={(value) => setMinDistance(value[0])}
+                          />
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel>Export Settings</DropdownMenuLabel>
+                    <DropdownMenuItem className="p-2 h-auto focus:bg-transparent">
+                      <div className="w-full space-y-4">
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            variant={exportFormat === "wav" ? "default" : "outline"}
+                            onClick={() => setExportFormat("wav")}
+                            size="sm"
+                          >
+                            WAV
+                          </Button>
+                          <Button
+                            variant={exportFormat === "mp3" ? "default" : "outline"}
+                            onClick={() => setExportFormat("mp3")}
+                            size="sm"
+                          >
+                            MP3
+                          </Button>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="include-midi"
+                            checked={includeMidi}
+                            onCheckedChange={(checked) => setIncludeMidi(!!checked)}
+                          />
+                          <Label htmlFor="include-midi">Include MIDI</Label>
+                        </div>
+
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="include-metadata"
+                            checked={includeMetadata}
+                            onCheckedChange={(checked) => setIncludeMetadata(!!checked)}
+                          />
+                          <Label htmlFor="include-metadata">Include Metadata</Label>
+                        </div>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setAudioBuffer(null)
+                  setAudioFile(null)
+                  setOriginalAudioBuffer(null)
+                  setSlices([])
+                  setPotentialSlices([])
+                }}
+              >
+                Load Different Audio
+              </Button>
+            </div>
+          </div>
+
+          {/* Extracted slices section - only shown when slices exist */}
+          {slices.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-bold">Detected Slices ({slices.length})</h2>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="flex items-center gap-1 bg-transparent">
+                        <span>Size</span>
+                        <ChevronDown className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuItem onClick={() => setGridLayout(1)}>
+                        <div className={`flex items-center gap-2 ${gridLayout === 1 ? "font-bold" : ""}`}>
+                          <div className="w-4 h-4 bg-primary/20 rounded-sm"></div>
+                          Large View (1 per row)
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setGridLayout(2)}>
+                        <div className={`flex items-center gap-2 ${gridLayout === 2 ? "font-bold" : ""}`}>
+                          <div className="flex gap-1">
+                            <div className="w-2 h-4 bg-primary/20 rounded-sm"></div>
+                            <div className="w-2 h-4 bg-primary/20 rounded-sm"></div>
+                          </div>
+                          Normal View (2 per row)
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setGridLayout(3)}>
+                        <div className={`flex items-center gap-2 ${gridLayout === 3 ? "font-bold" : ""}`}>
+                          <div className="flex gap-1">
+                            <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
+                            <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
+                            <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
+                          </div>
+                          Small View (3 per row)
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setGridLayout(4)}>
+                        <div className={`flex items-center gap-2 ${gridLayout === 4 ? "font-bold" : ""}`}>
+                          <div className="flex gap-0.5">
+                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                          </div>
+                          Compact View (4 per row)
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setSlices([])}>
+                  Clear All
+                </Button>
+              </div>
+
+              {/* Make the slices container scrollable with a fixed height */}
+              <div className="max-h-[70vh] overflow-y-auto pr-0 sm:pr-2">
+                <div
+                  className={`grid grid-cols-1 ${
+                    gridLayout === 1
+                      ? "grid-cols-1"
+                      : gridLayout === 2
+                        ? "grid-cols-1 sm:grid-cols-2"
+                        : gridLayout === 3
+                          ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"
+                          : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                  } gap-3`}
+                >
+                  {slices.map((slice) => (
+                    <div
+                      key={slice.id}
+                      className={`bg-white p-3 rounded-md border ${
+                        gridLayout === 1 ? "p-4" : gridLayout === 4 ? "p-2" : "p-3"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <Input
+                          value={slice.name}
+                          onChange={(e) => updateSlice(slice.id, { name: e.target.value })}
+                          className="flex-1 mr-2 text-sm h-9"
+                          size={12}
+                        />
+
+                        <select
+                          value={slice.type}
+                          onChange={(e) => updateSlice(slice.id, { type: e.target.value })}
+                          className="border rounded-md p-1 text-sm h-9"
+                        >
+                          <option value="kick">Kick</option>
+                          <option value="snare">Snare</option>
+                          <option value="hat">Hat</option>
+                          <option value="perc">Perc</option>
+                          <option value="cymb">Cymb</option>
+                        </select>
+
+                        <Checkbox
+                          checked={slice.selected}
+                          onCheckedChange={(checked) => updateSlice(slice.id, { selected: !!checked })}
+                          className="h-5 w-5 mx-1"
+                        />
+
+                        <div className="flex items-center space-x-1">
+                          <Button variant="ghost" size="sm" className="h-9 w-9" onClick={() => playSlice(slice.id)}>
+                            <Play className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-500 hover:text-red-600 h-9 w-9"
+                            onClick={() => removeSlice(slice.id)}
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`${
+                          gridLayout === 1 ? "h-32" : gridLayout === 4 ? "h-16" : "h-20"
+                        } bg-muted rounded-md mb-2 relative`}
+                      >
+                        {audioBuffer && (
+                          <SliceWaveform
+                            audioBuffer={audioBuffer}
+                            start={slice.start}
+                            end={slice.end}
+                            fadeIn={slice.fadeIn}
+                            fadeOut={slice.fadeOut}
+                            fadeInShape={slice.fadeInShape || 0}
+                            fadeOutShape={slice.fadeOutShape || 0}
+                            type={slice.type}
+                            zoomLevel={sliceZoomLevels[slice.id] || 1}
+                            scrollPosition={sliceScrollPositions[slice.id] || 0.5}
+                            onStartChange={(newStart) => updateSlice(slice.id, { start: newStart })}
+                            onEndChange={(newEnd) => updateSlice(slice.id, { end: newEnd })}
+                            onZoomChange={(newZoom) => handleSliceZoomChange(slice.id, newZoom)}
+                            onScrollChange={(newScroll) => handleSliceScrollChange(slice.id, newScroll)}
+                            onFadeInShapeChange={(newShape) => handleFadeInShapeChange(slice.id, newShape)}
+                            onFadeOutShapeChange={(newShape) => handleFadeOutShapeChange(slice.id, newShape)}
+                          />
+                        )}
+
+                        <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
+                          <div className="flex items-center space-x-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`h-5 w-5 ${
+                                (sliceScrollPositions[slice.id] || 0.5) <= 0.05
+                                  ? "bg-black/10 cursor-not-allowed opacity-50"
+                                  : "bg-black/20 hover:bg-black/40"
+                              } rounded-full p-0`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const currentPosition = sliceScrollPositions[slice.id] || 0.5
+                                if (currentPosition > 0.05) {
+                                  handleSliceScrollChange(slice.id, Math.max(0, currentPosition - 0.1))
+                                }
+                              }}
+                              disabled={(sliceScrollPositions[slice.id] || 0.5) <= 0.05}
+                            >
+                              <ChevronLeft className="h-3 w-3 text-white" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={`h-5 w-5 ${
+                                (sliceScrollPositions[slice.id] || 0.5) >= 0.95
+                                  ? "bg-black/10 cursor-not-allowed opacity-50"
+                                  : "bg-black/20 hover:bg-black/40"
+                              } rounded-full p-0`}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const currentPosition = sliceScrollPositions[slice.id] || 0.5
+                                if (currentPosition < 0.95) {
+                                  handleSliceScrollChange(slice.id, Math.min(1, currentPosition + 0.1))
+                                }
+                              }}
+                              disabled={(sliceScrollPositions[slice.id] || 0.5) >= 0.95}
+                            >
+                              <ChevronRight className="h-3 w-3 text-white" />
+                            </Button>
+                          </div>
+
+                          <span>{((slice.end - slice.start) * 1000).toFixed(0)}ms</span>
+
+                          <div className="flex items-center space-x-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 bg-black/20 hover:bg-black/40 rounded-full p-0"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSliceZoomChange(slice.id, Math.max(1, (sliceZoomLevels[slice.id] || 1) - 0.5))
+                              }}
+                            >
+                              <ZoomOut className="h-3 w-3 text-white" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-5 w-5 bg-black/20 hover:bg-black/40 rounded-full p-0"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSliceZoomChange(slice.id, Math.min(20, (sliceZoomLevels[slice.id] || 1) + 0.5))
+                              }}
+                            >
+                              <ZoomIn className="h-3 w-3 text-white" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between px-1 mt-1">
+                        {/* All knobs in a single row with labels underneath - reordered */}
+                        <div className="flex flex-col items-center">
+                          <Knob
+                            value={slice.fadeIn}
+                            min={0}
+                            max={100}
+                            step={1}
+                            size={18}
+                            onChange={(value) => updateSlice(slice.id, { fadeIn: value })}
+                            activeColor="#3b82f6"
+                          />
+                          <span className="text-[10px] mt-1">{slice.fadeIn}ms</span>
+                        </div>
+
+                        <div className="flex flex-col items-center">
+                          <Knob
+                            value={Math.round((slice.start - (audioBuffer ? 0 : 0)) * 100)}
+                            min={0}
+                            max={100}
+                            step={1}
+                            size={18}
+                            onChange={(value) => {
+                              const newStart = value / 100 + (audioBuffer ? 0 : 0)
+                              if (newStart < slice.end - 0.01) {
+                                updateSlice(slice.id, { start: newStart })
+                              }
+                            }}
+                            activeColor="#3b82f6"
+                          />
+                          <span className="text-[10px] mt-1">Start</span>
+                        </div>
+
+                        <div className="flex flex-col items-center">
+                          <Knob
+                            value={Math.round((slice.end - (audioBuffer ? 0 : 0)) * 100)}
+                            min={0}
+                            max={audioBuffer ? Math.round(audioBuffer.duration * 100) : 100}
+                            step={1}
+                            size={18}
+                            onChange={(value) => {
+                              const newEnd = value / 100 + (audioBuffer ? 0 : 0)
+                              if (newEnd > slice.start + 0.01) {
+                                updateSlice(slice.id, { end: newEnd })
+                              }
+                            }}
+                            activeColor="#ef4444"
+                          />
+                          <span className="text-[10px] mt-1">End</span>
+                        </div>
+
+                        <div className="flex flex-col items-center">
+                          <Knob
+                            value={slice.fadeOut}
+                            min={0}
+                            max={500}
+                            step={5}
+                            size={18}
+                            onChange={(value) => updateSlice(slice.id, { fadeOut: value })}
+                            activeColor="#ef4444"
+                          />
+                          <span className="text-[10px] mt-1">{slice.fadeOut}ms</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </main>
+  )
+}

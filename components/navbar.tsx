@@ -2,9 +2,9 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -17,90 +17,100 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAuth } from "@/lib/auth-context"
-import { Menu, Music, TrendingUp, ShoppingBag, User, Settings, LogOut, Bell, ShoppingCart, Box, Trash2, Sparkles } from 'lucide-react'
+import {
+  Bell,
+  BookOpen,
+  Box,
+  Home,
+  Menu,
+  Music,
+  Settings,
+  ShoppingBag,
+  ShoppingCart,
+  Sparkles,
+  User,
+  LogOut,
+  DollarSign,
+} from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 
-// Mock cart items
+type NavGroup = {
+  type: "group"
+  title: string
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
+  href: string
+  items: Array<{ label: string; href: string }>
+}
+
+type NavLink = {
+  type: "link"
+  title: string
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
+  href: string
+}
+
 const mockCartItems = [
-  {
-    id: "1",
-    name: "LA Trap Essentials",
-    price: 24.99,
-    creator: "beatmaker99",
-    image: "/trap-drums.png",
-  },
-  {
-    id: "2",
-    name: "Lofi Chill Pack",
-    price: 19.99,
-    creator: "drumgod",
-    image: "/lofi-drums.png",
-  },
+  { id: "1", name: "LA Trap Essentials", price: 24.99, creator: "beatmaker99" },
+  { id: "2", name: "Lofi Chill Pack", price: 19.99, creator: "drumgod" },
 ]
 
-// Mock notifications
 const mockNotifications = [
-  {
-    id: "1",
-    type: "like",
-    message: "beatmaker99 liked your kit 'Sunset Drums'",
-    time: "2 hours ago",
-    read: false,
-  },
-  {
-    id: "2",
-    type: "comment",
-    message: "drumgod commented on 'Urban Beats'",
-    time: "5 hours ago",
-    read: false,
-  },
-  {
-    id: "3",
-    type: "follow",
-    message: "rhythmmaster started following you",
-    time: "1 day ago",
-    read: true,
-  },
-  {
-    id: "4",
-    type: "purchase",
-    message: "Your kit 'Sunset Drums' was purchased",
-    time: "2 days ago",
-    read: true,
-  },
+  { id: "1", message: "beatlucid mentioned you in a drop", time: "Just now", read: false },
+  { id: "2", message: "You sold 3 copies of 'Velvet Perc Pack'", time: "1h ago", read: false },
+  { id: "3", message: "Sky @ramblebots started following you", time: "2h ago", read: true },
 ]
 
 export default function Navbar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, isAuthenticated, login, logout } = useAuth()
-  const [showLoginDialog, setShowLoginDialog] = useState(false)
+  const { user, isAuthenticated, logout } = useAuth()
   const [showCartDialog, setShowCartDialog] = useState(false)
   const [showNotificationsDialog, setShowNotificationsDialog] = useState(false)
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
   const [cartItems, setCartItems] = useState(mockCartItems)
   const [notifications, setNotifications] = useState(mockNotifications)
 
-  const navItems = [
-    { href: "/", label: "Create", icon: Music },
-    { href: "/extractor-experiment", label: "Prototype", icon: Sparkles },
-    { href: "/my-kits", label: "My Kits", icon: Box },
-    { href: "/marketplace", label: "Market", icon: ShoppingBag },
-    { href: "/charts", label: "Charts", icon: TrendingUp },
-  ]
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    await login(email, password)
-    setShowLoginDialog(false)
-  }
+  const navConfig = useMemo<(NavLink | NavGroup)[]>(
+    () => [
+      { type: "link", title: "Home", icon: Home, href: "/home" },
+      { type: "link", title: "Create", icon: Music, href: "/" },
+      {
+        type: "group",
+        title: "My Kits",
+        icon: Box,
+        href: "/my-library",
+        items: [
+          { label: "My Library", href: "/my-library" },
+          { label: "My Projects", href: "/my-projects" },
+        ],
+      },
+      {
+        type: "group",
+        title: "Market",
+        icon: ShoppingBag,
+        href: "/marketplace",
+        items: [
+          { label: "Marketplace", href: "/marketplace" },
+          { label: "Trending", href: "/marketplace/trending" },
+          { label: "Stats", href: "/marketplace/stats" },
+        ],
+      },
+      { type: "link", title: "Pricing", icon: DollarSign, href: "/pricing" },
+      {
+        type: "group",
+        title: "About",
+        icon: BookOpen,
+        href: "/about",
+        items: [
+          { label: "About", href: "/about" },
+          { label: "Help", href: "/help" },
+          { label: "Guide", href: "/guide" },
+        ],
+      },
+    ],
+    [],
+  )
 
   const handleLogout = () => {
     logout()
@@ -108,429 +118,280 @@ export default function Navbar() {
   }
 
   const removeFromCart = (id: string) => {
-    setCartItems(cartItems.filter((item) => item.id !== id))
+    setCartItems((items) => items.filter((item) => item.id !== id))
   }
-
-  const cartTotal = cartItems.reduce((sum, item) => sum + item.price, 0)
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
   const markAllAsRead = () => {
-    setNotifications(notifications.map((n) => ({ ...n, read: true })))
+    setNotifications((notes) => notes.map((note) => ({ ...note, read: true })))
   }
 
-  return (
-    <>
-      {/* Left Sidebar - Desktop */}
-      <aside className="hidden md:flex fixed left-0 top-0 h-screen w-48 flex-col border-r bg-gray-800/95 backdrop-blur supports-[backdrop-filter]:bg-gray-800/90 z-50">
-        {/* Logo */}
-        <div className="p-4 border-b border-gray-700 bg-white/5">
-          <Link href="/" className="flex items-center justify-center">
-            <img
-              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
-              alt="DrumKitzz"
-              width="140"
-              height="48"
-              className="object-contain max-w-full h-auto"
-              loading="eager"
-              crossOrigin="anonymous"
-              onError={(e) => {
-                console.error('Desktop logo failed to load', e);
-                const target = e.target as HTMLImageElement;
-                console.log('Image src:', target.src);
-                console.log('Image complete:', target.complete);
-                console.log('Image naturalWidth:', target.naturalWidth);
-              }}
-              onLoad={(e) => {
-                console.log('Desktop logo loaded successfully');
-                const target = e.target as HTMLImageElement;
-                console.log('Image naturalWidth:', target.naturalWidth, 'naturalHeight:', target.naturalHeight);
-              }}
-            />
-          </Link>
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/"
+    return pathname?.startsWith(href)
+  }
+
+  const homeHref = isAuthenticated ? "/home" : "/marketing"
+
+  const renderPrimaryLink = (link: NavLink) => {
+    const Icon = link.icon
+    const active = isActive(link.href)
+    return (
+      <Link key={link.href} href={link.href}>
+        <Button
+          variant="ghost"
+          className={`w-full justify-start gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
+            active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+          }`}
+        >
+          <Icon className="h-4 w-4" />
+          <span>{link.title}</span>
+        </Button>
+      </Link>
+    )
+  }
+
+  const renderGroup = (group: NavGroup) => {
+    const Icon = group.icon
+    const active = [group.href, ...group.items.map((item) => item.href)].some((href) => isActive(href))
+    return (
+      <div key={group.title} className="space-y-2">
+        <Link href={group.href}>
+          <Button
+            variant="ghost"
+            className={`w-full justify-start gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+              active ? "bg-white/10 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            <Icon className="h-4 w-4" />
+            <span>{group.title}</span>
+          </Button>
+        </Link>
+        <div className="ml-8 flex flex-col gap-1">
+          {group.items.map((item) => {
+            const itemActive = isActive(item.href)
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`text-xs font-medium uppercase tracking-[0.2em] transition ${
+                  itemActive ? "text-white" : "text-white/40 hover:text-white/80"
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          })}
         </div>
+      </div>
+    )
+  }
 
-        {/* Navigation */}
-        <ScrollArea className="flex-1 py-4">
-          <nav className="flex flex-col gap-2 px-3">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              const isActive = pathname === item.href
-              return (
-                <Link key={item.href} href={item.href}>
-                  <Button
-                    variant={isActive ? "secondary" : "ghost"}
-                    className={`w-full justify-start gap-3 text-white hover:bg-gray-700 ${
-                      isActive ? "bg-gray-700" : ""
-                    }`}
-                  >
-                    <Icon className="h-5 w-5" />
-                    <span className="text-base">{item.label}</span>
-                  </Button>
+  const prototypeButton = (
+    <Link
+      href="/extractor-experiment"
+      className="mt-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/70 text-background shadow-lg transition hover:bg-primary"
+    >
+      <Sparkles className="h-4 w-4" />
+      <span className="sr-only">Open prototype flow</span>
+    </Link>
+  )
+
+  const DesktopNav = () => (
+    <aside className="page-glow drumkitzz-sidebar hidden md:flex fixed left-0 top-0 z-50 h-screen w-52 flex-col border-r border-white/10 bg-[#050308]/85 px-4 pb-6 pt-5 backdrop-blur">
+      <div className="flex items-center justify-center pb-6">
+        <Link href={homeHref} className="flex items-center gap-2">
+          <img
+            src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
+            alt="DrumKitzz"
+            width={96}
+            height={32}
+            className="object-contain"
+          />
+        </Link>
+      </div>
+      <ScrollArea className="flex-1">
+        <nav className="flex flex-col gap-4">
+          {navConfig.map((section) => (section.type === "link" ? renderPrimaryLink(section) : renderGroup(section)))}
+        </nav>
+      </ScrollArea>
+      <div className="mt-6 space-y-3 border-t border-white/10 pt-4">
+        {isAuthenticated && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition hover:border-white/30 hover:bg-white/10">
+                <Avatar className="h-10 w-10">
+                  <AvatarImage src={user?.avatar} />
+                  <AvatarFallback className="bg-primary/30 text-primary-foreground">
+                    {user?.firstName?.[0]}
+                    {user?.lastName?.[0]}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="text-sm">
+                  <p className="font-medium text-white">{user?.firstName}</p>
+                  <p className="text-white/60">@{user?.username}</p>
+                </div>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="start" className="w-52 bg-[#08040f] text-white">
+              <DropdownMenuLabel>Account</DropdownMenuLabel>
+              <DropdownMenuItem asChild>
+                <Link href="/profile" className="flex w-full items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Profile
                 </Link>
-              )
-            })}
-          </nav>
-        </ScrollArea>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings" className="flex w-full items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleLogout} className="flex items-center gap-2 text-red-300 focus:text-red-200">
+                <LogOut className="h-4 w-4" />
+                Logout
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+        {prototypeButton}
+      </div>
+    </aside>
+  )
 
-        {/* Bottom section - User and actions */}
-        <div className="p-4 border-t border-gray-700 space-y-2">
-          {isAuthenticated ? (
+  const MobileNav = () => (
+    <nav className="marketing-mobile-nav md:hidden sticky top-0 z-50 border-b border-white/10 bg-[#050308]/90 backdrop-blur">
+      <div className="flex h-16 items-center justify-between px-4">
+        <Link href={homeHref} className="flex items-center gap-2">
+          <img
+            src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
+            alt="DrumKitzz"
+            width={96}
+            height={32}
+            className="object-contain"
+          />
+        </Link>
+        <div className="flex items-center gap-2">
+          {isAuthenticated && (
             <>
-              {/* Notifications */}
               <Button
                 variant="ghost"
-                size="sm"
-                className="w-full justify-start gap-3 text-white hover:bg-gray-700"
+                size="icon"
+                className="text-white hover:bg-white/10"
                 onClick={() => setShowNotificationsDialog(true)}
               >
                 <div className="relative">
                   <Bell className="h-5 w-5" />
                   {unreadCount > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
-                      {unreadCount}
-                    </Badge>
+                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 text-[10px]">{unreadCount}</Badge>
                   )}
                 </div>
-                <span>Notifications</span>
               </Button>
-
-              {/* Cart */}
               <Button
                 variant="ghost"
-                size="sm"
-                className="w-full justify-start gap-3 text-white hover:bg-gray-700"
+                size="icon"
+                className="text-white hover:bg-white/10"
                 onClick={() => setShowCartDialog(true)}
               >
                 <div className="relative">
                   <ShoppingCart className="h-5 w-5" />
                   {cartItems.length > 0 && (
-                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
-                      {cartItems.length}
-                    </Badge>
+                    <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 text-[10px]">{cartItems.length}</Badge>
                   )}
                 </div>
-                <span>Cart</span>
               </Button>
-
-              {/* User Menu */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="w-full justify-start gap-3 text-white hover:bg-gray-700 p-2">
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={user?.avatar} />
-                      <AvatarFallback className="bg-primary text-primary-foreground">
-                        {user?.firstName?.[0]}
-                        {user?.lastName?.[0]}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex flex-col items-start text-sm">
-                      <span className="font-medium">{user?.firstName} {user?.lastName}</span>
-                      <span className="text-xs text-gray-400">@{user?.username}</span>
-                    </div>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>My Account</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push("/profile")}>
-                    <User className="mr-2 h-4 w-4" />
-                    Profile
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push("/settings")}>
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleLogout}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Logout
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </>
-          ) : (
-            <Button onClick={() => setShowLoginDialog(true)} className="w-full bg-primary hover:bg-primary/90">
-              Sign In
-            </Button>
           )}
-        </div>
-      </aside>
-
-      {/* Mobile Top Bar */}
-      <nav className="md:hidden sticky top-0 z-50 w-full border-b bg-gray-800/95 backdrop-blur supports-[backdrop-filter]:bg-gray-800/90">
-        <div className="container flex h-16 items-center justify-between">
-          {/* Mobile Logo */}
-          <Link href="/" className="flex items-center">
-            <img
-              src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
-              alt="DrumKitzz"
-              width="120"
-              height="40"
-              className="object-contain max-w-full h-auto"
-              loading="eager"
-              crossOrigin="anonymous"
-              onError={(e) => {
-                console.error('Mobile navbar logo failed to load', e);
-                const target = e.target as HTMLImageElement;
-                console.log('Image src:', target.src);
-              }}
-              onLoad={() => console.log('Mobile navbar logo loaded successfully')}
-            />
-          </Link>
-
-          {/* Mobile Menu */}
-          <div className="flex items-center gap-2">
-            {isAuthenticated && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowNotificationsDialog(true)}
-                  className="text-white hover:bg-gray-700"
-                >
-                  <div className="relative">
-                    <Bell className="h-5 w-5" />
-                    {unreadCount > 0 && (
-                      <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
-                        {unreadCount}
-                      </Badge>
-                    )}
-                  </div>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowCartDialog(true)}
-                  className="text-white hover:bg-gray-700"
-                >
-                  <div className="relative">
-                    <ShoppingCart className="h-5 w-5" />
-                    {cartItems.length > 0 && (
-                      <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 flex items-center justify-center text-[10px]">
-                        {cartItems.length}
-                      </Badge>
-                    )}
-                  </div>
-                </Button>
-              </>
-            )}
-
-            <Sheet>
-              <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-white hover:bg-gray-700">
-                  <Menu className="h-6 w-6" />
-                </Button>
-              </SheetTrigger>
-              <SheetContent side="left" className="w-64 bg-gray-800 border-gray-700">
-                <div className="flex flex-col h-full">
-                  <div className="py-4">
-                    <Link href="/" className="block">
-                      <img
-                        src="https://ik.imagekit.io/flxhsxcsf/drumkitzz3.png?updatedAt=1762301071257"
-                        alt="DrumKitzz"
-                        width="150"
-                        height="50"
-                        className="object-contain mx-auto max-w-full h-auto"
-                        loading="eager"
-                        crossOrigin="anonymous"
-                        onError={(e) => {
-                          console.error('Mobile menu logo failed to load', e);
-                          const target = e.target as HTMLImageElement;
-                          console.log('Image src:', target.src);
-                        }}
-                        onLoad={() => console.log('Mobile menu logo loaded successfully')}
-                      />
-                    </Link>
-                  </div>
-                  <Separator className="bg-gray-700" />
-                  <ScrollArea className="flex-1 py-4">
-                    <nav className="flex flex-col gap-2">
-                      {navItems.map((item) => {
-                        const Icon = item.icon
-                        const isActive = pathname === item.href
-                        return (
-                          <Link key={item.href} href={item.href}>
-                            <Button
-                              variant={isActive ? "secondary" : "ghost"}
-                              className={`w-full justify-start gap-3 text-white hover:bg-gray-700 ${
-                                isActive ? "bg-gray-700" : ""
-                              }`}
-                            >
-                              <Icon className="h-5 w-5" />
-                              {item.label}
-                            </Button>
-                          </Link>
-                        )
-                      })}
-                    </nav>
-                  </ScrollArea>
-
-                  {isAuthenticated ? (
-                    <div className="border-t border-gray-700 pt-4">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" className="w-full justify-start gap-3 text-white hover:bg-gray-700">
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={user?.avatar} />
-                              <AvatarFallback className="bg-primary text-primary-foreground">
-                                {user?.firstName?.[0]}
-                                {user?.lastName?.[0]}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="flex flex-col items-start text-sm">
-                              <span className="font-medium">{user?.firstName}</span>
-                              <span className="text-xs text-gray-400">@{user?.username}</span>
-                            </div>
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56">
-                          <DropdownMenuLabel>My Account</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => router.push("/profile")}>
-                            <User className="mr-2 h-4 w-4" />
-                            Profile
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => router.push("/settings")}>
-                            <Settings className="mr-2 h-4 w-4" />
-                            Settings
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={handleLogout}>
-                            <LogOut className="mr-2 h-4 w-4" />
-                            Logout
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  ) : (
-                    <div className="border-t border-gray-700 pt-4">
-                      <Button onClick={() => setShowLoginDialog(true)} className="w-full bg-primary hover:bg-primary/90">
-                        Sign In
-                      </Button>
-                    </div>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" className="text-white hover:bg-white/10">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-72 border-white/10 bg-[#06030c] text-white">
+              <div className="flex items-center justify-between pb-4">
+                <p className="text-sm uppercase tracking-[0.35em] text-white/50">Navigate</p>
+                {prototypeButton}
+              </div>
+              <ScrollArea className="h-[calc(100vh-6rem)]">
+                <nav className="flex flex-col gap-4">
+                  {navConfig.map((section) => (section.type === "link" ? renderPrimaryLink(section) : renderGroup(section)))}
+                </nav>
+                <div className="mt-6 space-y-3 border-t border-white/10 pt-4">
+                  {isAuthenticated && (
+                    <Button
+                      onClick={handleLogout}
+                      variant="ghost"
+                      className="w-full rounded-full border border-white/10 text-white/70 hover:bg-white/5"
+                    >
+                      Logout
+                    </Button>
                   )}
                 </div>
-              </SheetContent>
-            </Sheet>
-          </div>
-        </div>
-      </nav>
-
-      {/* Login Dialog */}
-      <Dialog open={showLoginDialog} onOpenChange={setShowLoginDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Sign In</DialogTitle>
-            <DialogDescription>Enter your email and password to sign in</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="your@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full">
-              Sign In
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Cart Dialog */}
-      <Dialog open={showCartDialog} onOpenChange={setShowCartDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Shopping Cart</DialogTitle>
-            <DialogDescription>
-              {cartItems.length === 0 ? "Your cart is empty" : `${cartItems.length} item(s) in your cart`}
-            </DialogDescription>
-          </DialogHeader>
-          {cartItems.length > 0 ? (
-            <div className="space-y-4">
-              <ScrollArea className="h-[300px] pr-4">
-                {cartItems.map((item) => (
-                  <Card key={item.id} className="mb-3">
-                    <CardContent className="p-4 flex items-center gap-4">
-                      <div className="h-16 w-16 rounded-md bg-muted flex items-center justify-center">
-                        <Music className="h-8 w-8 text-muted-foreground" />
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-medium">{item.name}</h4>
-                        <p className="text-sm text-muted-foreground">by {item.creator}</p>
-                        <p className="text-sm font-bold mt-1">${item.price}</p>
-                      </div>
-                      <Button variant="ghost" size="icon" onClick={() => removeFromCart(item.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </CardContent>
-                  </Card>
-                ))}
               </ScrollArea>
-              <Separator />
-              <div className="flex justify-between items-center">
-                <span className="font-bold">Total:</span>
-                <span className="font-bold text-lg">${cartTotal.toFixed(2)}</span>
-              </div>
-              <Button className="w-full">Proceed to Checkout</Button>
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <ShoppingCart className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">Start adding drum kits to your cart!</p>
-            </div>
-          )}
+            </SheetContent>
+          </Sheet>
+        </div>
+      </div>
+    </nav>
+  )
+
+  return (
+    <>
+      <DesktopNav />
+      <MobileNav />
+
+      <Dialog open={showCartDialog} onOpenChange={setShowCartDialog}>
+        <DialogContent className="max-w-lg bg-[#08040f] text-white">
+          <DialogHeader>
+            <DialogTitle>Cart</DialogTitle>
+            <DialogDescription className="text-white/60">Manage your selected kits</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {cartItems.length === 0 ? (
+              <p className="text-sm text-white/60">Your cart is empty.</p>
+            ) : (
+              cartItems.map((item) => (
+                <div key={item.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div>
+                    <p className="font-medium">{item.name}</p>
+                    <p className="text-sm text-white/60">by {item.creator}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span>${item.price.toFixed(2)}</span>
+                    <Button variant="ghost" size="sm" onClick={() => removeFromCart(item.id)}>
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* Notifications Dialog */}
       <Dialog open={showNotificationsDialog} onOpenChange={setShowNotificationsDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md bg-[#08040f] text-white">
           <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle>Notifications</DialogTitle>
-              {unreadCount > 0 && (
-                <Button variant="ghost" size="sm" onClick={markAllAsRead}>
-                  Mark all as read
-                </Button>
-              )}
-            </div>
+            <DialogTitle>Notifications</DialogTitle>
+            <DialogDescription className="text-white/60">Stay updated with your kits</DialogDescription>
           </DialogHeader>
-          <ScrollArea className="h-[400px] pr-4">
-            {notifications.map((notification) => (
-              <Card key={notification.id} className={`mb-3 ${notification.read ? "opacity-60" : ""}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-start gap-3">
-                    <Bell className="h-4 w-4 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-sm">{notification.message}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{notification.time}</p>
-                    </div>
-                    {!notification.read && <div className="h-2 w-2 rounded-full bg-primary" />}
-                  </div>
-                </CardContent>
-              </Card>
+          <div className="space-y-3">
+            <Button variant="ghost" className="w-full justify-center rounded-full border border-white/10 text-white/70" onClick={markAllAsRead}>
+              Mark all as read
+            </Button>
+            {notifications.map((note) => (
+              <div key={note.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                <p className="text-sm">{note.message}</p>
+                <p className="text-xs text-white/50">{note.time}</p>
+              </div>
             ))}
-          </ScrollArea>
+          </div>
         </DialogContent>
       </Dialog>
+
     </>
   )
 }
