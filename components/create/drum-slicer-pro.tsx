@@ -1072,15 +1072,15 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       pausePlayback()
     } else {
       if (isPaused) {
-        resumePlayback()
+        await resumePlayback()
       } else {
-        startPlayback()
+        await startPlayback()
       }
     }
   }
 
   // Start audio playback
-  const startPlayback = (startTime = 0) => {
+  const startPlayback = async (startTime = 0) => {
     if (!audioBuffer || !audioContext.current) {
       toast({
         title: "Playback error",
@@ -1090,9 +1090,19 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       return
     }
 
-    // Resume audio context if suspended (needed for iOS)
-    if (audioContext.current.state === "suspended") {
-      audioContext.current.resume()
+    // Resume audio context if suspended/interrupted (needed for iOS/mobile)
+    if (audioContext.current.state !== "running") {
+      try {
+        await audioContext.current.resume()
+      } catch (error) {
+        console.error("[Audio] Failed to resume AudioContext before playback:", error)
+        toast({
+          title: "Playback blocked",
+          description: "Tap the screen to enable audio, then try again.",
+          variant: "destructive",
+        })
+        return
+      }
     }
 
     // Stop any current playback
@@ -1163,8 +1173,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   }
 
   // Resume audio playback from paused position
-  const resumePlayback = () => {
-    startPlayback(pausedTime.current)
+  const resumePlayback = async () => {
+    await startPlayback(pausedTime.current)
   }
 
   // Stop audio playback
