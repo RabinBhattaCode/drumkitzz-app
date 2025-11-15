@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 
-export function middleware(request: NextRequest) {
+import type { Database } from "@/lib/database.types"
+
+export async function middleware(request: NextRequest) {
   // Clone the response
   const response = NextResponse.next()
+
+  // Refresh Supabase session so auth state stays in sync
+  const supabase = createMiddlewareClient<Database>({ req: request, res: response })
+  await supabase.auth.getSession()
 
   // Add security headers
   const cspHeader = `

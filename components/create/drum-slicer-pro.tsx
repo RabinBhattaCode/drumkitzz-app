@@ -31,6 +31,8 @@ import { ExtractionProgressDialog } from "@/app/components/extraction-progress-d
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { saveDrumKit, type DrumKit } from "@/lib/dashboard-data"
+import { uploadFiles } from "@/lib/uploadthing"
 
 // Define OfflineContext type
 type OfflineContext = OfflineAudioContext
@@ -68,6 +70,13 @@ const SLICE_ACCENT_COLORS: Record<string, string> = {
   perc: "#d6a8ff",
   bass: "#6fd0c0",
 }
+
+const AUDITION_KEY_LAYOUT = [
+  ["r", "t", "y", "u", "i"],
+  ["d", "f", "g", "h", "j"],
+] as const
+
+const AUDITION_KEY_ORDER = AUDITION_KEY_LAYOUT.flat()
 
 type DrumSlicerProProps = {
   variant?: "classic" | "modern"
@@ -110,6 +119,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [showTrimPreview, setShowTrimPreview] = useState(false)
   const [trimSelection, setTrimSelection] = useState<[number, number]>([0, 0])
   const [previewPlaybackTime, setPreviewPlaybackTime] = useState(0)
+  const [uploadedFileInfo, setUploadedFileInfo] = useState<{ url: string; key: string } | null>(null)
+  const [cloudBackupStatus, setCloudBackupStatus] = useState<"idle" | "uploading" | "success" | "error">("idle")
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   const [isUploadDragActive, setIsUploadDragActive] = useState(false)
   const [pendingAudioSource, setPendingAudioSource] = useState<PendingAudioSource | null>(null)
@@ -151,9 +162,10 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [isTyping, setIsTyping] = useState(false)
 
   // Export settings
-  const [exportFormat, setExportFormat] = useState<"wav" | "mp3">("wav")
+  const [exportFormat, setExportFormat] = useState<"wav" | "mp3">("mp3")
   const [includeMidi, setIncludeMidi] = useState(true)
   const [includeMetadata, setIncludeMetadata] = useState(true)
+  const [isSavingKit, setIsSavingKit] = useState(false)
 
   // Zoom and navigation
   const [zoomLevel, setZoomLevel] = useState(1)
@@ -162,6 +174,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [isZoomingOut, setIsZoomingOut] = useState(false)
   // Grid layout for slices
   const [gridLayout, setGridLayout] = useState<1 | 2 | 3 | 4>(3) // Default to 3 slices per row (small view)
+  const [auditionEnabled, setAuditionEnabled] = useState(false)
+  const [activeAuditionKey, setActiveAuditionKey] = useState<string | null>(null)
 
   // Audio context
   const audioContext = useRef<AudioContext | null>(null)
@@ -183,6 +197,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const recordingStartRef = useRef<number | null>(null)
   const recordingRafRef = useRef<number | null>(null)
   const offlineAudioContextRef = useRef<OfflineContext | null>(null)
+  const auditionPressedKeysRef = useRef<Set<string>>(new Set())
   const { toast } = useToast()
 
   // Refs for waveform interaction
@@ -583,12 +598,47 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     recordingStartRef.current = null
   }
 
-  // Handle file upload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const isMp3File = (file: File) => file.type === "audio/mpeg" || file.name.toLowerCase().endsWith(".mp3")
 
-    // Initialize audio context if not already done
+  const uploadOriginalFileToCloud = async (file: File) => {
+    setCloudBackupStatus("uploading")
+    try {
+      const uploadResult = await uploadFiles("kitAudio", { files: [file] })
+      const uploaded = uploadResult?.[0]
+      if (!uploaded) {
+        throw new Error("Upload failed")
+      }
+      const serverData = uploaded.serverData as { fileUrl?: string; fileKey?: string } | undefined
+      setUploadedFileInfo({
+        url: serverData?.fileUrl ?? uploaded.ufsUrl ?? uploaded.url,
+        key: serverData?.fileKey ?? uploaded.key,
+      })
+      setCloudBackupStatus("success")
+    } catch (error) {
+      console.error("UploadThing error:", error)
+      setCloudBackupStatus("error")
+      toast({
+        title: "Cloud backup failed",
+        description: "Audio stayed local. Try re-uploading if you need a cloud copy.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const prepareAudioFileForSlicing = async (file: File) => {
+    if (!isMp3File(file)) {
+      toast({
+        title: "MP3 required",
+        description: "MP3 uploads only for now. WAV support is coming soon.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setCloudBackupStatus("idle")
+    setUploadedFileInfo(null)
+    void uploadOriginalFileToCloud(file)
+
     if (!audioContextInitialized) {
       await initializeAudioContext()
     }
@@ -607,7 +657,6 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
       const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer)
 
-      // Store pending buffer and open trim preview
       openTrimPreview(decodedBuffer, file, "upload")
       setIsProcessing(false)
 
@@ -623,6 +672,16 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         description: "Failed to decode audio file. Please try a different file.",
         variant: "destructive",
       })
+    }
+  }
+
+  // Handle file upload
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await prepareAudioFileForSlicing(file)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
     }
   }
 
@@ -651,46 +710,12 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       const file = e.dataTransfer.files[0]
-      if (file.type.includes("audio")) {
-        // Initialize audio context if not already done
-        if (!audioContextInitialized) {
-          await initializeAudioContext()
-        }
-
-        setSlices([])
-        setPotentialSlices([])
-        setSelectedSliceId(null)
-
-        try {
-          setIsProcessing(true)
-          const arrayBuffer = await file.arrayBuffer()
-
-          if (!audioContext.current) {
-            throw new Error("Audio context not initialized")
-          }
-
-          const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer)
-
-          openTrimPreview(decodedBuffer, file, "upload")
-          setIsProcessing(false)
-
-          toast({
-            title: "Audio prepared",
-            description: "Select a 3-60s window before slicing.",
-          })
-        } catch (error) {
-          console.error("Error decoding audio data:", error)
-          setIsProcessing(false)
-          toast({
-            title: "Error loading file",
-            description: "Failed to decode audio file. Please try a different file.",
-            variant: "destructive",
-          })
-        }
+      if (file.type.includes("audio") || file.name.toLowerCase().endsWith(".mp3")) {
+        await prepareAudioFileForSlicing(file)
       } else {
         toast({
           title: "Invalid file",
-          description: "Please upload an audio file",
+          description: "Please upload an MP3 file",
           variant: "destructive",
         })
       }
@@ -702,6 +727,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     setShowTrimPreview(false)
     setPendingAudioBuffer(null)
     setPendingAudioFile(null)
+    setUploadedFileInfo(null)
+    setCloudBackupStatus("idle")
     setDetectedOutputs([])
     setTrimSelection([0, 0])
     if (pendingAudioSource === "record") {
@@ -718,6 +745,28 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       })
     }
     setPendingAudioSource(null)
+  }
+
+  const handleLoadNewAudio = () => {
+    stopPlayback()
+    stopPreviewPlayback()
+    setAudioBuffer(null)
+    setOriginalAudioBuffer(null)
+    setPendingAudioBuffer(null)
+    setPendingAudioFile(null)
+    setPendingAudioSource(null)
+    setSlices([])
+    setPotentialSlices([])
+    setSelectedSliceId(null)
+    setDetectedOutputs([])
+    setTrimSelection([0, 0])
+    setUploadedFileInfo(null)
+    setCloudBackupStatus("idle")
+    setShowTrimPreview(false)
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ""
+      fileInputRef.current.click()
+    }
   }
 
   // Extract drum stem from audio file using external API
@@ -1050,6 +1099,67 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     }
   }
 
+  const triggerAuditionForKey = (inputKey: string) => {
+    if (!auditionEnabled) return
+    const normalizedKey = inputKey.toLowerCase()
+    const padIndex = AUDITION_KEY_ORDER.indexOf(normalizedKey)
+    if (padIndex === -1) return
+    const targetSlice = slices[padIndex]
+    if (!targetSlice) return
+
+    setSelectedSliceId(targetSlice.id)
+    setActiveAuditionKey(normalizedKey)
+    void playSlice(targetSlice.id)
+  }
+
+  const handleSaveKit = async () => {
+    if (slices.length === 0) {
+      toast({
+        title: "Nothing to save",
+        description: "Create at least one slice before saving to your library.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingKit(true)
+
+    try {
+      const kitStatus: DrumKit["status"] = slices.length >= 8 ? "finished" : "draft"
+      const fallbackName = `${kitPrefix}_${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+      const nameToPersist = kitName.trim() || fallbackName
+      const projectId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `proj-${Date.now().toString(36)}`
+      const kit: DrumKit = {
+        id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,
+        projectId,
+        name: nameToPersist,
+        sliceCount: slices.length,
+        status: kitStatus,
+        lastModified: new Date(),
+        downloads: 0,
+        likes: 0,
+        visibility: "private",
+        price: 0,
+      }
+
+      saveDrumKit(kit)
+      toast({
+        title: kitStatus === "finished" ? "Kit saved" : "Draft saved",
+        description: `${nameToPersist} was added to My Library.`,
+      })
+    } catch (error) {
+      console.error("Failed to save kit:", error)
+      toast({
+        title: "Save failed",
+        description: "Could not add this kit to My Library. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingKit(false)
+    }
+  }
+
   // Handle slice selection
   const handleSliceClick = (sliceId: string) => {
     // If clicking the already selected slice, deselect it
@@ -1351,15 +1461,6 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     // Process audio data immediately
     processAudioData()
 
-    // Show toast notification after playback has started
-    setTimeout(() => {
-      toast({
-        title: `Playing ${slice.type}`,
-        description: `${slice.name} (${((slice.end - slice.start) * 1000).toFixed(0)}ms)`,
-        duration: 1500,
-      })
-    }, 0)
-
     // Set timeout to update state when playback ends
     setTimeout(
       () => {
@@ -1368,6 +1469,45 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       (slice.end - slice.start) * 1000,
     )
   }
+
+  useEffect(() => {
+    if (!auditionEnabled) {
+      auditionPressedKeysRef.current.clear()
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      if (!AUDITION_KEY_ORDER.includes(key)) return
+
+      if (auditionPressedKeysRef.current.has(key)) {
+        event.preventDefault()
+        return
+      }
+
+      auditionPressedKeysRef.current.add(key)
+      event.preventDefault()
+      triggerAuditionForKey(key)
+    }
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase()
+      if (!AUDITION_KEY_ORDER.includes(key)) return
+
+      auditionPressedKeysRef.current.delete(key)
+      setActiveAuditionKey((current) => (current === key ? null : current))
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
+      auditionPressedKeysRef.current.clear()
+      setActiveAuditionKey(null)
+    }
+  }, [auditionEnabled, triggerAuditionForKey])
 
   // Helper functions for export
   const bufferToWav = (buffer: AudioBuffer): Promise<Blob> => {
@@ -1955,7 +2095,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
       {!audioBuffer ? (
         <div className="w-full max-w-6xl space-y-10 px-4 py-6 lg:px-0">
-          <input ref={fileInputRef} type="file" accept="audio/*" className="hidden" onChange={handleFileUpload} />
+          <input ref={fileInputRef} type="file" accept=".mp3,audio/mpeg" className="hidden" onChange={handleFileUpload} />
           <div className="grid gap-6 lg:grid-cols-[1.15fr,0.9fr]">
             <div className="rounded-[32px] border border-white/10 bg-white/5 p-6 text-left shadow-[0_25px_80px_rgba(5,5,7,0.65)]">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -2030,8 +2170,23 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                     onDrop={handleDrop}
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <p className="text-base font-semibold text-white">Select audio file</p>
-                    <p className="text-xs text-white/60">or drag & drop MP3, WAV, AIFF</p>
+                    <p className="text-base font-semibold text-white">Select MP3</p>
+                    <p className="text-xs text-white/60">MP3 only. WAV coming soon.</p>
+                    {cloudBackupStatus !== "idle" && (
+                      <p
+                        className={`mt-2 text-xs ${
+                          cloudBackupStatus === "uploading"
+                            ? "text-amber-200"
+                            : cloudBackupStatus === "success"
+                              ? "text-emerald-200"
+                              : "text-red-200"
+                        }`}
+                      >
+                        {cloudBackupStatus === "uploading" && "Uploading to cloud backup..."}
+                        {cloudBackupStatus === "success" && "Backed up to UploadThing."}
+                        {cloudBackupStatus === "error" && "Cloud backup failed. Audio kept locally."}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="rounded-[28px] border border-white/10 bg-white/5 p-4 text-left text-white shadow">
@@ -2125,7 +2280,9 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
               {!isAuthenticated && (
                 <Button
                   className="rounded-full bg-amber-400 text-black hover:bg-amber-300"
-                  onClick={() => router.push("/home?signup=true")}
+                  onClick={() =>
+                    window.dispatchEvent(new CustomEvent("open-auth-overlay", { detail: { mode: "signup" } }))
+                  }
                 >
                   Sign up
                 </Button>
@@ -2293,7 +2450,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                     variant="outline"
                     size="sm"
                     className="h-10 rounded-full border border-white/15 text-white/70 hover:text-white"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={handleLoadNewAudio}
                   >
                     Load Audio
                   </Button>
@@ -2356,11 +2513,11 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                         <div className="space-y-4 w-full">
                           <div className="grid grid-cols-2 gap-2">
                             <Button
-                              variant={exportFormat === "wav" ? "default" : "outline"}
-                              className={`rounded-2xl ${exportFormat === "wav" ? "bg-amber-300 text-black" : "border-white/20 text-white/80"}`}
-                              onClick={() => setExportFormat("wav")}
+                              variant="outline"
+                              disabled
+                              className="rounded-2xl border-white/10 bg-transparent text-white/40 cursor-not-allowed"
                             >
-                              WAV
+                              WAV (coming soon)
                             </Button>
                             <Button
                               variant={exportFormat === "mp3" ? "default" : "outline"}
@@ -2400,6 +2557,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                     Detect & Slice
                   </Button>
                   <Button
+                    onClick={handleSaveKit}
+                    disabled={isSavingKit || slices.length === 0}
+                    variant="outline"
+                    className="h-11 rounded-full border border-white/20 bg-transparent px-6 text-white/80 hover:text-white disabled:opacity-50"
+                  >
+                    {isSavingKit ? "Saving..." : "Save to library"}
+                  </Button>
+                  <Button
                     onClick={exportSlices}
                     disabled={isProcessing || slices.length === 0}
                     variant="outline"
@@ -2417,55 +2582,110 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
           {/* Extracted slices section - only shown when slices exist */}
           {slices.length > 0 && (
             <div className="space-y-4 mt-4">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <h2 className="font-display text-2xl text-white">Detected Slices ({slices.length})</h2>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="flex items-center gap-1 bg-transparent">
-                        <span>Size</span>
-                        <ChevronDown className="h-3 w-3" />
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-display text-2xl text-white">Detected Slices ({slices.length})</h2>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="flex items-center gap-1 bg-transparent">
+                          <span>Size</span>
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">
+                        <DropdownMenuItem onClick={() => setGridLayout(1)}>
+                          <div className={`flex items-center gap-2 ${gridLayout === 1 ? "font-bold" : ""}`}>
+                            <div className="w-4 h-4 bg-primary/20 rounded-sm"></div>
+                            Large View (1 per row)
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setGridLayout(2)}>
+                          <div className={`flex items-center gap-2 ${gridLayout === 2 ? "font-bold" : ""}`}>
+                            <div className="flex gap-1">
+                              <div className="w-2 h-4 bg-primary/20 rounded-sm"></div>
+                              <div className="w-2 h-4 bg-primary/20 rounded-sm"></div>
+                            </div>
+                            Normal View (2 per row)
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setGridLayout(3)}>
+                          <div className={`flex items-center gap-2 ${gridLayout === 3 ? "font-bold" : ""}`}>
+                            <div className="flex gap-1">
+                              <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
+                              <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
+                              <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
+                            </div>
+                            Small View (3 per row)
+                          </div>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setGridLayout(4)}>
+                          <div className={`flex items-center gap-2 ${gridLayout === 4 ? "font-bold" : ""}`}>
+                            <div className="flex gap-0.5">
+                              <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                              <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                              <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                              <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
+                            </div>
+                            Compact View (4 per row)
+                          </div>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  <div className="flex flex-col gap-1 text-white/70">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs uppercase tracking-[0.35em] text-white/40">Audition</span>
+                      <Button
+                        variant={auditionEnabled ? "default" : "outline"}
+                        size="sm"
+                        className={`h-7 rounded-full px-3 text-xs ${auditionEnabled ? "bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black" : ""}`}
+                        onClick={() => setAuditionEnabled((prev) => !prev)}
+                      >
+                        {auditionEnabled ? "Enabled" : "Enable"}
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start">
-                      <DropdownMenuItem onClick={() => setGridLayout(1)}>
-                        <div className={`flex items-center gap-2 ${gridLayout === 1 ? "font-bold" : ""}`}>
-                          <div className="w-4 h-4 bg-primary/20 rounded-sm"></div>
-                          Large View (1 per row)
+                    </div>
+                    <div className="space-y-1">
+                      {AUDITION_KEY_LAYOUT.map((row, rowIndex) => (
+                        <div key={row.join("-")} className={cn("flex gap-1", rowIndex === 1 ? "pl-2" : "")}>
+                          {row.map((key) => {
+                            const padIndex = AUDITION_KEY_ORDER.indexOf(key)
+                            const assignedSlice = slices[padIndex]
+                            const isActive = activeAuditionKey === key
+                            const isEnabled = auditionEnabled && Boolean(assignedSlice)
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                disabled={!isEnabled}
+                                className={cn(
+                                  "h-8 w-8 rounded-lg border text-[10px] font-mono uppercase tracking-[0.2em] transition focus:outline-none",
+                                  isEnabled ? "text-white shadow-[0_4px_12px_rgba(0,0,0,0.45)]" : "cursor-not-allowed text-white/30 opacity-50",
+                                  isActive
+                                    ? "border-amber-300 bg-amber-300/20 shadow-[0_0_15px_rgba(245,217,122,0.8)]"
+                                    : "border-white/15 bg-white/5 hover:border-white/30",
+                                )}
+                                title={assignedSlice ? `Play ${assignedSlice.name}` : "No slice assigned"}
+                                onPointerDown={(event) => {
+                                  event.preventDefault()
+                                  if (!isEnabled) return
+                                  triggerAuditionForKey(key)
+                                }}
+                                onPointerUp={() => {
+                                  setActiveAuditionKey((current) => (current === key ? null : current))
+                                }}
+                                onPointerLeave={() => {
+                                  setActiveAuditionKey((current) => (current === key ? null : current))
+                                }}
+                              >
+                                {key.toUpperCase()}
+                              </button>
+                            )
+                          })}
                         </div>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setGridLayout(2)}>
-                        <div className={`flex items-center gap-2 ${gridLayout === 2 ? "font-bold" : ""}`}>
-                          <div className="flex gap-1">
-                            <div className="w-2 h-4 bg-primary/20 rounded-sm"></div>
-                            <div className="w-2 h-4 bg-primary/20 rounded-sm"></div>
-                          </div>
-                          Normal View (2 per row)
-                        </div>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setGridLayout(3)}>
-                        <div className={`flex items-center gap-2 ${gridLayout === 3 ? "font-bold" : ""}`}>
-                          <div className="flex gap-1">
-                            <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
-                            <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
-                            <div className="w-1.5 h-4 bg-primary/20 rounded-sm"></div>
-                          </div>
-                          Small View (3 per row)
-                        </div>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setGridLayout(4)}>
-                        <div className={`flex items-center gap-2 ${gridLayout === 4 ? "font-bold" : ""}`}>
-                          <div className="flex gap-0.5">
-                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
-                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
-                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
-                            <div className="w-1 h-4 bg-primary/20 rounded-sm"></div>
-                          </div>
-                          Compact View (4 per row)
-                        </div>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      ))}
+                    </div>
+                  </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setSlices([])}>
                   Clear All

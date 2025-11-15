@@ -1,7 +1,9 @@
 import { createClient } from "@supabase/supabase-js"
 
+import type { Database } from "@/lib/database.types"
+
 // Lazy initialization of Supabase client to avoid build-time errors
-let supabase: ReturnType<typeof createClient> | null = null
+let supabase: ReturnType<typeof createClient<Database>> | null = null
 
 function getSupabaseClient() {
   if (!supabase) {
@@ -10,7 +12,7 @@ function getSupabaseClient() {
 
     // Only create client if env vars are available
     if (supabaseUrl && supabaseServiceKey) {
-      supabase = createClient(supabaseUrl, supabaseServiceKey)
+      supabase = createClient<Database>(supabaseUrl, supabaseServiceKey)
     }
   }
   return supabase

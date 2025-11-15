@@ -377,6 +377,12 @@ This metric represents:
    - Quality score display
    - Re-process option
 
+**Roadmap Notes:**
+- **MVP 1:** Launch slicer without remote extraction; users provide their own stems or mixes.
+- **MVP 2:** Enable Lalal.ai drum extraction (stem `drum`) to power the Drum Kit workflow.
+- **Full launch:** Support Lalal.ai stems for vocals/voice, bass, electric guitar, acoustic guitar, piano, synthesizer, strings, and wind so each kit type maps to the proper extractor.
+- **Monetization:** Reserve advanced multi-stem Instrument One Shots access for the highest paid subscription tier.
+
 **Technical Specifications:**
 - AI Model: Demucs (Facebook Research)
 - API: Replicate ($0.02 per extraction)

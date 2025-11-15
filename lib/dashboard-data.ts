@@ -1,5 +1,6 @@
 export interface DrumKit {
   id: string
+  projectId?: string
   name: string
   sliceCount: number
   status: "draft" | "finished"
@@ -8,6 +9,9 @@ export interface DrumKit {
   views?: number
   downloads?: number
   likes?: number
+  visibility: "public" | "private"
+  price?: number
+  currency?: string
 }
 
 export interface Friend {
@@ -34,6 +38,7 @@ const STORAGE_KEY = "drumkitzz_kits"
 const mockKits: DrumKit[] = [
   {
     id: "1",
+    projectId: "proj-1",
     name: "Sunset Drums",
     sliceCount: 12,
     status: "finished",
@@ -42,9 +47,12 @@ const mockKits: DrumKit[] = [
     views: 145,
     downloads: 32,
     likes: 18,
+    visibility: "public",
+    price: 0,
   },
   {
     id: "2",
+    projectId: "proj-2",
     name: "Urban Beats",
     sliceCount: 8,
     status: "draft",
@@ -53,9 +61,12 @@ const mockKits: DrumKit[] = [
     views: 0,
     downloads: 0,
     likes: 0,
+    visibility: "private",
+    price: 0,
   },
   {
     id: "3",
+    projectId: "proj-3",
     name: "Vintage Kit",
     sliceCount: 16,
     status: "finished",
@@ -64,9 +75,13 @@ const mockKits: DrumKit[] = [
     views: 289,
     downloads: 67,
     likes: 45,
+    visibility: "public",
+    price: 29,
+    currency: "USD",
   },
   {
     id: "4",
+    projectId: "proj-4",
     name: "Electronic Pack",
     sliceCount: 5,
     status: "draft",
@@ -75,6 +90,8 @@ const mockKits: DrumKit[] = [
     views: 0,
     downloads: 0,
     likes: 0,
+    visibility: "private",
+    price: 0,
   },
 ]
 
@@ -148,6 +165,7 @@ export function getDrumKits(): DrumKit[] {
       return kits.map((k: any) => ({
         ...k,
         lastModified: new Date(k.lastModified),
+        visibility: k.visibility || "private",
       }))
     } catch (e) {
       console.error("Failed to parse stored kits:", e)
@@ -164,11 +182,16 @@ export function saveDrumKit(kit: DrumKit) {
 
   const kits = getDrumKits()
   const existingIndex = kits.findIndex((k) => k.id === kit.id)
+  const normalizedKit: DrumKit = {
+    ...kit,
+    visibility: kit.visibility || "private",
+    lastModified: kit.lastModified || new Date(),
+  }
 
   if (existingIndex >= 0) {
-    kits[existingIndex] = kit
+    kits[existingIndex] = normalizedKit
   } else {
-    kits.push(kit)
+    kits.push(normalizedKit)
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(kits))

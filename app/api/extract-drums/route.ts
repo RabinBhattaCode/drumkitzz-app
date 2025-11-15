@@ -10,6 +10,10 @@ interface ReplicateOutput {
   other?: string
 }
 
+const LALAL_UPLOAD_ENDPOINT = "https://www.lalal.ai/api/upload/"
+const LALAL_SPLIT_ENDPOINT = "https://www.lalal.ai/api/split/"
+const LALAL_CHECK_ENDPOINT = "https://www.lalal.ai/api/check/"
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -22,8 +26,173 @@ export async function POST(request: NextRequest) {
 
     const replicateToken = process.env.REPLICATE_API_TOKEN
     const useLocalDemucs = process.env.USE_LOCAL_DEMUCS === "true"
+    const lalalLicenseKey = process.env.LALAL_AI_LICENSE_KEY
 
-    // Option 1: Replicate API (Recommended)
+    // Option 1: Lalal.ai stem separation (preferred when license is provided)
+    if (!useLocalDemucs && lalalLicenseKey) {
+      // Upload audio and start Lalal split task
+      if (action === "upload") {
+        if (!audioFile) {
+          return NextResponse.json({ success: false, error: "No audio file provided" }, { status: 400 })
+        }
+
+        try {
+          const bytes = Buffer.from(await audioFile.arrayBuffer())
+          const filename = audioFile.name || "audio.wav"
+
+          const uploadResponse = await fetch(LALAL_UPLOAD_ENDPOINT, {
+            method: "POST",
+            headers: {
+              Authorization: `license ${lalalLicenseKey}`,
+              "Content-Disposition": `attachment; filename="${filename}"`,
+            },
+            body: bytes,
+          })
+
+          const uploadData = (await uploadResponse.json()) as {
+            status: string
+            id?: string
+            error?: string
+          }
+
+          if (uploadData.status !== "success" || !uploadData.id) {
+            throw new Error(uploadData.error || "Failed to upload audio to Lalal.ai")
+          }
+
+          const params = [
+            {
+              id: uploadData.id,
+              stem: "drum",
+            },
+          ]
+
+          const splitResponse = await fetch(LALAL_SPLIT_ENDPOINT, {
+            method: "POST",
+            headers: {
+              Authorization: `license ${lalalLicenseKey}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              params: JSON.stringify(params),
+            }),
+          })
+
+          const splitData = (await splitResponse.json()) as {
+            status: string
+            task_id?: string
+            error?: string
+          }
+
+          if (splitData.status !== "success") {
+            throw new Error(splitData.error || "Failed to start Lalal.ai split job")
+          }
+
+          return NextResponse.json({
+            success: true,
+            predictionId: uploadData.id,
+            status: "processing",
+            provider: "lalal",
+            taskId: splitData.task_id,
+            message: "Drum extraction started with Lalal.ai",
+          })
+        } catch (error) {
+          console.error("Lalal.ai upload error:", error)
+          return NextResponse.json(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to start Lalal.ai extraction",
+            },
+            { status: 500 },
+          )
+        }
+      }
+
+      if (action === "check") {
+        const predictionId = formData.get("predictionId") as string
+
+        if (!predictionId) {
+          return NextResponse.json({ success: false, error: "No prediction ID provided" }, { status: 400 })
+        }
+
+        try {
+          const checkResponse = await fetch(LALAL_CHECK_ENDPOINT, {
+            method: "POST",
+            headers: {
+              Authorization: `license ${lalalLicenseKey}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({
+              id: predictionId,
+            }),
+          })
+
+          const checkData = (await checkResponse.json()) as {
+            status: string
+            error?: string
+            result?: Record<
+              string,
+              {
+                status: string
+                error?: string
+                split?: {
+                  stem_track?: string
+                }
+                task?: {
+                  state?: string
+                  progress?: number
+                  error?: string
+                }
+              }
+            >
+          }
+
+          if (checkData.status !== "success") {
+            throw new Error(checkData.error || "Failed to check Lalal.ai status")
+          }
+
+          const fileResult = checkData.result?.[predictionId]
+
+          if (!fileResult) {
+            throw new Error("No status available for requested file")
+          }
+
+          if (fileResult.split?.stem_track) {
+            return NextResponse.json({
+              success: true,
+              status: "succeeded",
+              output: { drums: fileResult.split.stem_track },
+            })
+          }
+
+          if (fileResult.task?.state === "error" || fileResult.status === "error") {
+            return NextResponse.json({
+              success: false,
+              status: "failed",
+              error: fileResult.task?.error || fileResult.error || "Lalal.ai task failed",
+            })
+          }
+
+          const progress = fileResult.task?.progress ?? null
+
+          return NextResponse.json({
+            success: true,
+            status: "processing",
+            progress,
+          })
+        } catch (error) {
+          console.error("Lalal.ai status check error:", error)
+          return NextResponse.json(
+            {
+              success: false,
+              error: error instanceof Error ? error.message : "Failed to check Lalal.ai status",
+            },
+            { status: 500 },
+          )
+        }
+      }
+    }
+
+    // Option 2: Replicate API
     if (!useLocalDemucs && replicateToken) {
       if (action === "upload") {
         try {
@@ -94,7 +263,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Option 2: Local Demucs (100% free but requires Python setup)
+    // Option 3: Local Demucs (100% free but requires Python setup)
     if (useLocalDemucs) {
       if (action === "local-extract") {
         // Save file temporarily and run Demucs locally
@@ -110,8 +279,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Option 3: No API configured - return mock/demo mode
-    if (!replicateToken && !useLocalDemucs) {
+    // Option 4: No API configured - return mock/demo mode
+    if (!lalalLicenseKey && !replicateToken && !useLocalDemucs) {
       console.warn("No AI extraction configured. Using demo mode.")
       return NextResponse.json({
         success: true,

@@ -8,11 +8,9 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Bell, Play } from "lucide-react"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { useAuth } from "@/lib/auth-context"
-import { useToast } from "@/hooks/use-toast"
+import { AuthForms } from "@/app/components/auth/auth-forms"
 
 const suggestedCreators = [
   {
@@ -94,11 +92,7 @@ export default function HomePage() {
   const [trendScope, setTrendScope] = useState("global")
   const [trendWindow, setTrendWindow] = useState("now")
   const [showSignup, setShowSignup] = useState(false)
-  const [signupEmail, setSignupEmail] = useState("")
-  const [signupPassword, setSignupPassword] = useState("")
-  const [signupLoading, setSignupLoading] = useState(false)
-  const { login, isAuthenticated } = useAuth()
-  const { toast } = useToast()
+  const { isAuthenticated } = useAuth()
   useEffect(() => {
     if (!isAuthenticated && typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search)
@@ -107,22 +101,6 @@ export default function HomePage() {
       }
     }
   }, [isAuthenticated])
-
-  const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSignupLoading(true)
-    try {
-      await login(signupEmail, signupPassword)
-      toast({ title: "Account ready", description: "Welcome to DrumKitzz." })
-      setShowSignup(false)
-      setSignupEmail("")
-      setSignupPassword("")
-    } catch (error) {
-      toast({ title: "Signup failed", description: "Please try again.", variant: "destructive" })
-    } finally {
-      setSignupLoading(false)
-    }
-  }
 
   const renderHero = () => {
     if (isAuthenticated) {
@@ -330,36 +308,8 @@ export default function HomePage() {
         </section>
       )}
       <Dialog open={showSignup} onOpenChange={setShowSignup}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Create your DrumKitzz account</DialogTitle>
-            <DialogDescription>Use any email and a password to save kits across devices.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleSignup} className="space-y-4">
-            <div>
-              <Label htmlFor="signup-email">Email</Label>
-              <Input
-                id="signup-email"
-                type="email"
-                value={signupEmail}
-                onChange={(e) => setSignupEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <Label htmlFor="signup-password">Password</Label>
-              <Input
-                id="signup-password"
-                type="password"
-                value={signupPassword}
-                onChange={(e) => setSignupPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={signupLoading}>
-              {signupLoading ? "Creating..." : "Create account"}
-            </Button>
-          </form>
+        <DialogContent className="max-w-md border border-white/10 bg-gradient-to-br from-[#0d0c18] via-[#090712] to-[#040308]">
+          <AuthForms initialTab="signup" onSuccess={() => setShowSignup(false)} />
         </DialogContent>
       </Dialog>
     </div>

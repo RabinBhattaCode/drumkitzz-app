@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
@@ -8,16 +8,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
-import { getDrumKits, deleteDrumKit, type DrumKit } from "@/lib/dashboard-data"
-import { Music, Plus, CheckCircle2, Clock, Trash2, Share2, Download, Play } from "lucide-react"
+import type { DrumKit } from "@/lib/dashboard-data"
+import { Music, Plus, CheckCircle2, Clock, Trash2, Share2, Download, FolderGit2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { PageHero } from "@/components/page-hero"
+import { useKits } from "@/hooks/use-kits"
 
 export default function MyKitsPage() {
   const { isAuthenticated, isLoading } = useAuth()
   const router = useRouter()
   const { toast } = useToast()
-  const [kits, setKits] = useState<DrumKit[]>([])
+  const { kits, isLoaded, removeKit } = useKits()
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -25,13 +26,7 @@ export default function MyKitsPage() {
     }
   }, [isAuthenticated, isLoading, router])
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      setKits(getDrumKits())
-    }
-  }, [isAuthenticated])
-
-  if (isLoading || !isAuthenticated) {
+  if (isLoading || !isAuthenticated || !isLoaded) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
@@ -44,12 +39,13 @@ export default function MyKitsPage() {
 
   const finishedKits = kits.filter((k) => k.status === "finished")
   const draftKits = kits.filter((k) => k.status === "draft")
+  const publicKits = kits.filter((k) => k.visibility === "public")
+  const privateKits = kits.filter((k) => k.visibility === "private")
   const totalSlices = kits.reduce((sum, k) => sum + k.sliceCount, 0)
 
   const handleDelete = (id: string, name: string) => {
     if (confirm(`Are you sure you want to delete "${name}"?`)) {
-      deleteDrumKit(id)
-      setKits(kits.filter((k) => k.id !== id))
+      removeKit(id)
       toast({
         title: "Kit deleted",
         description: `${name} has been removed.`,
@@ -76,9 +72,30 @@ export default function MyKitsPage() {
   const heroStats = [
     { label: "Total kits", value: kits.length },
     { label: "Finished", value: finishedKits.length },
-    { label: "In progress", value: draftKits.length },
+    { label: "Drafts", value: draftKits.length },
+    { label: "Public", value: publicKits.length },
+    { label: "Private", value: privateKits.length },
     { label: "Slices", value: totalSlices },
   ]
+
+  const filterTabs = [
+    { value: "all", label: `All (${kits.length})`, items: kits },
+    { value: "finished", label: `Finished (${finishedKits.length})`, items: finishedKits },
+    { value: "drafts", label: `Drafts (${draftKits.length})`, items: draftKits },
+    { value: "public", label: `Public (${publicKits.length})`, items: publicKits },
+    { value: "private", label: `Private (${privateKits.length})`, items: privateKits },
+  ]
+
+  const visibilityBadge = (visibility: DrumKit["visibility"]) =>
+    visibility === "public" ? "bg-emerald-500/10 text-emerald-300" : "bg-white/10 text-white/70"
+
+  const accessLabel = (kit: DrumKit) => {
+    if (kit.visibility === "private") return "Private link only"
+    if (kit.price && kit.price > 0) {
+      return kit.currency ? `${kit.currency} ${kit.price}` : `$${kit.price}`
+    }
+    return "Free download"
+  }
 
   const renderKitGrid = (list: DrumKit[]) => {
     if (list.length === 0) {
@@ -97,27 +114,33 @@ export default function MyKitsPage() {
             key={kit.id}
             className="space-y-5 rounded-[32px] border border-white/10 bg-black/35 p-5 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)]"
           >
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-lg font-semibold">{kit.name}</p>
                 <p className="text-sm text-white/60">{formatDate(kit.lastModified)}</p>
               </div>
-              <Badge className="rounded-full bg-white/10 text-xs tracking-[0.35em]">
-                {kit.status === "finished" ? (
-                  <span className="flex items-center gap-1 text-emerald-300">
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Done
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-amber-200">
-                    <Clock className="h-3.5 w-3.5" />
-                    Draft
-                  </span>
-                )}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.35em]">
+                <Badge className="rounded-full bg-white/10">
+                  {kit.status === "finished" ? (
+                    <span className="flex items-center gap-1 text-emerald-300">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Done
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-amber-200">
+                      <Clock className="h-3.5 w-3.5" />
+                      Draft
+                    </span>
+                  )}
+                </Badge>
+                <Badge className={`rounded-full ${visibilityBadge(kit.visibility)}`}>
+                  {kit.visibility === "public" ? "Public" : "Private"}
+                </Badge>
+                <span className="text-white/60">{accessLabel(kit)}</span>
+              </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 text-sm text-white/70">
+            <div className="grid gap-3 text-sm text-white/70 sm:grid-cols-4">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
                 <p className="text-[10px] uppercase tracking-[0.35em]">Slices</p>
                 <p className="text-xl font-semibold text-white">{kit.sliceCount}</p>
@@ -130,24 +153,14 @@ export default function MyKitsPage() {
                 <p className="text-[10px] uppercase tracking-[0.35em]">Likes</p>
                 <p className="text-xl font-semibold text-white">{kit.likes ?? 0}</p>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-white/60">Progress</span>
-                <span className="font-medium text-white">{Math.round(getKitProgress(kit))}%</span>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                <p className="text-[10px] uppercase tracking-[0.35em]">Progress</p>
+                <p className="text-xl font-semibold text-white">{Math.round(getKitProgress(kit))}%</p>
+                <Progress value={getKitProgress(kit)} className="mt-2 h-1.5" />
               </div>
-              <Progress value={getKitProgress(kit)} className="h-2" />
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Button
-                size="sm"
-                className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110"
-              >
-                <Play className="mr-2 h-4 w-4" />
-                Preview
-              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -164,6 +177,15 @@ export default function MyKitsPage() {
                 <Download className="mr-2 h-4 w-4" />
                 Export
               </Button>
+              <Link href={`/my-projects?project=${kit.projectId ?? kit.id}`} className="inline-flex">
+                <Button
+                  size="sm"
+                  className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110"
+                >
+                  <FolderGit2 className="mr-2 h-4 w-4" />
+                  Open project
+                </Button>
+              </Link>
               <Button
                 size="sm"
                 variant="ghost"
@@ -185,17 +207,24 @@ export default function MyKitsPage() {
       <PageHero
         eyebrow="Library"
         title="My Drum Kits"
-        description="Review finished drops, polish drafts, and keep every slice export-ready."
+        description="Finalized kits ready for download. Track drafts, control privacy, and publish to the store."
         actions={
-          <Link href="/">
-            <Button className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110">
-              <Plus className="mr-2 h-4 w-4" />
-              New kit session
-            </Button>
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/my-projects">
+              <Button variant="outline" className="rounded-full border-white/20 text-white/80 hover:text-white">
+                Projects
+              </Button>
+            </Link>
+            <Link href="/create">
+              <Button className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110">
+                <Plus className="mr-2 h-4 w-4" />
+                New kit session
+              </Button>
+            </Link>
+          </div>
         }
       >
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           {heroStats.map((stat) => (
             <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5/80 px-4 py-3 backdrop-blur">
               <p className="text-xs uppercase tracking-[0.35em] text-white/60">{stat.label}</p>
@@ -207,35 +236,22 @@ export default function MyKitsPage() {
 
       <section className="glass-panel p-6">
         <Tabs defaultValue="all" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 rounded-full bg-white/5 p-1">
-            <TabsTrigger
-              value="all"
-              className="rounded-full text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
-            >
-              All ({kits.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="finished"
-              className="rounded-full text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
-            >
-              Finished ({finishedKits.length})
-            </TabsTrigger>
-            <TabsTrigger
-              value="drafts"
-              className="rounded-full text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
-            >
-              Drafts ({draftKits.length})
-            </TabsTrigger>
+          <TabsList className="flex flex-wrap gap-2 rounded-full bg-white/5 p-1">
+            {filterTabs.map((tab) => (
+              <TabsTrigger
+                key={tab.value}
+                value={tab.value}
+                className="rounded-full px-4 text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
+              >
+                {tab.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
-          <TabsContent value="all" className="mt-8">
-            {renderKitGrid(kits)}
-          </TabsContent>
-          <TabsContent value="finished" className="mt-8">
-            {renderKitGrid(finishedKits)}
-          </TabsContent>
-          <TabsContent value="drafts" className="mt-8">
-            {renderKitGrid(draftKits)}
-          </TabsContent>
+          {filterTabs.map((tab) => (
+            <TabsContent key={tab.value} value={tab.value} className="mt-8">
+              {renderKitGrid(tab.items)}
+            </TabsContent>
+          ))}
         </Tabs>
       </section>
     </div>

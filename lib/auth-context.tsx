@@ -1,86 +1,70 @@
 "use client"
 
 import type React from "react"
-import { createContext, useContext, useState, useEffect } from "react"
+import { useMemo, useState } from "react"
+import { SessionContextProvider, useSessionContext } from "@supabase/auth-helpers-react"
+import { createBrowserClient } from "@/lib/supabase-browser"
 
-interface User {
+interface UserProfile {
   id: string
   email: string
   username: string
-  firstName: string
-  lastName: string
+  firstName?: string
+  lastName?: string
   avatar?: string
 }
 
-interface AuthContextType {
-  user: User | null
+interface AuthContext {
+  user: UserProfile | null
   isAuthenticated: boolean
   isLoading: boolean
   login: (email: string, password: string) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
 }
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [supabaseClient] = useState(() => createBrowserClient())
 
-  useEffect(() => {
-    // Check for stored auth on mount
-    const storedUser = localStorage.getItem("drumkitzz_user")
-    if (storedUser) {
-      try {
-        setUser(JSON.parse(storedUser))
-      } catch (e) {
-        console.error("Failed to parse stored user:", e)
-      }
-    }
-    setIsLoading(false)
-  }, [])
-
-  const login = async (email: string, password: string) => {
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    // Create mock user from email
-    const mockUser: User = {
-      id: "user_" + Math.random().toString(36).substr(2, 9),
-      email,
-      username: email.split("@")[0],
-      firstName: email.split("@")[0].charAt(0).toUpperCase() + email.split("@")[0].slice(1),
-      lastName: "User",
-      avatar: "/placeholder.svg",
-    }
-
-    setUser(mockUser)
-    localStorage.setItem("drumkitzz_user", JSON.stringify(mockUser))
-  }
-
-  const logout = () => {
-    setUser(null)
-    localStorage.removeItem("drumkitzz_user")
-  }
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated: !!user,
-        isLoading,
-        login,
-        logout,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  )
+  return <SessionContextProvider supabaseClient={supabaseClient}>{children}</SessionContextProvider>
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
+export function useAuth(): AuthContext {
+  const { session, isLoading, supabaseClient } = useSessionContext()
+
+  const user = useMemo<UserProfile | null>(() => {
+    if (!session?.user) return null
+
+    const metadata = session.user.user_metadata as Record<string, any>
+    const email = session.user.email ?? ""
+    const usernameFromEmail = email ? email.split("@")[0] : session.user.id
+
+    return {
+      id: session.user.id,
+      email,
+      username: metadata?.username || usernameFromEmail,
+      firstName: metadata?.first_name,
+      lastName: metadata?.last_name,
+      avatar: metadata?.avatar_url,
+    }
+  }, [session])
+
+  const login = async (email: string, password: string) => {
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password })
+    if (error) throw error
   }
-  return context
+
+  const logout = async () => {
+    const { error } = await supabaseClient.auth.signOut()
+    if (error) {
+      throw error
+    }
+  }
+
+  return {
+    user,
+    isAuthenticated: !!user,
+    isLoading,
+    login,
+    logout,
+  }
 }

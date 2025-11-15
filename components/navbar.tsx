@@ -117,12 +117,12 @@ export default function Navbar() {
   const handleProtectedClick = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     if (!isAuthenticated && protectedRoutes.has(href)) {
       event.preventDefault()
-      window.dispatchEvent(new CustomEvent("open-signin-overlay"))
+      window.dispatchEvent(new CustomEvent("open-auth-overlay", { detail: { mode: "login" } }))
     }
   }
 
-  const handleLogout = () => {
-    logout()
+  const handleLogout = async () => {
+    await logout()
     router.push("/")
   }
 

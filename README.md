@@ -98,9 +98,29 @@ UPSTASH_REDIS_REST_TOKEN=your-token
 
 **Note:** Upstash is used for rate limiting API requests and caching. If you don't set this up, rate limiting will be disabled in development.
 
-#### 3. AI Drum Separation (Demucs via Replicate)
+#### 3. AI Drum Separation Providers
 
-We've switched to **Demucs**, a free, open-source AI model for drum separation:
+You can choose the provider that best fits your workflow. The app prefers **Lalal.ai** when a license key is configured, then falls back to **Replicate** or **Local Demucs**.
+
+##### Option A: Lalal.ai (Recommended)
+
+\`\`\`bash
+# Get this from: https://www.lalal.ai/profile/licenses/
+LALAL_AI_LICENSE_KEY=your-license-key
+\`\`\`
+
+**How to get:**
+1. Create an account at [lalal.ai](https://www.lalal.ai/)
+2. Purchase or activate a license (API access required)
+3. Copy the license key from your profile dashboard
+4. Add it to `.env.local` as `LALAL_AI_LICENSE_KEY`
+
+**Why Lalal.ai?**
+- ✅ Dedicated stem separation service
+- ✅ Handles heavy processing + hosting for you
+- ✅ Supports multiple stem targets (we request `drum`)
+
+##### Option B: Demucs via Replicate
 
 \`\`\`bash
 # Get this from: https://replicate.com
@@ -112,22 +132,30 @@ REPLICATE_API_TOKEN=your-replicate-token
 2. Sign up for free account
 3. Go to Account Settings → API tokens
 4. Create a new token
-5. **Free tier:** $0.02 per prediction (very affordable!)
+5. **Free tier:** ~$0.02 per prediction
 
-**Why Demucs?**
-- ✅ Open-source (MIT license)
-- ✅ State-of-the-art quality
-- ✅ Very affordable ($0.02 per separation)
-- ✅ Fast processing (30-60 seconds)
-- ✅ No vendor lock-in
-
-**Alternative:** Local Demucs (100% Free)
+##### Option C: Local Demucs (100% Free)
 If you want to run Demucs locally (no API costs):
 1. Install Python 3.8+
 2. Install Demucs: `pip install demucs`
 3. Set `USE_LOCAL_DEMUCS=true` in `.env.local`
 
 See [Local Demucs Setup](#local-demucs-setup) below.
+
+#### UploadThing (Audio Uploads & Storage)
+
+We use UploadThing to back up the original MP3 uploads so each kit can reference the source audio later.
+
+```bash
+# Get these from: https://uploadthing.com/dashboard
+UPLOADTHING_TOKEN=your-uploadthing-token
+UPLOADTHING_APP_ID=your-app-id
+UPLOADTHING_SECRET=your-secret-key
+```
+
+**Notes**
+- MP3 uploads only for MVP to keep storage lean—WAV uploads are planned once we upgrade storage.
+- UploadThing’s starter tier is free; migrate to S3/R2 later if you outgrow it.
 
 #### 4. Stripe (Payments - Optional for Development)
 
@@ -221,6 +249,7 @@ For production, we recommend using Replicate API for scalability.
 | Supabase | ✅ Yes | ✅ Yes (10k rows) | Database, Auth |
 | Upstash | ⚠️ Recommended | ✅ Yes (10k req/day) | Rate limiting |
 | Replicate | ✅ Yes | ✅ Yes ($5 free credit) | AI drum separation |
+| UploadThing | ⚠️ Recommended | ✅ Yes (starter tier) | Cloud audio uploads (MP3) |
 | Stripe | ❌ Optional | ✅ Yes (test mode) | Payments |
 | Security Webhook | ❌ Optional | ✅ Yes (webhook.site) | Security alerts |
 
@@ -257,6 +286,16 @@ For production, we recommend using Replicate API for scalability.
 - **Metadata Files**: Text files with slice information
 - **Batch Processing**: Export all selected slices at once
 - **Naming Convention**: Customizable kit prefix and auto-numbering
+
+#### Stem Extraction Roadmap & Targets
+- **MVP 1 (current build)**: ships without remote stem extraction so we can finish the slicer workflow end-to-end using user-provided audio.
+- **MVP 2**: adds Lalal.ai-powered drum separation (stem=`drum`) so the Drum Kit card can auto-isolate percussion before slicing.
+- **Final goal**: expose all Lalal.ai stems so each kit type can call the right extractor:
+  - *Drum Kit* → `drum`
+  - *Vocal Chops* → `vocals` / `voice`
+  - *Bass One Shots* → `bass`
+  - *Instrument One Shots* → `electric_guitar`, `acoustic_guitar`, `piano`, `synthesizer`, `strings`, `wind`
+- **Monetization note**: keep Instrument One Shots gated for the highest subscription tier to preserve a premium differentiator once multi-stem extraction ships.
 
 ### Marketplace Features (Phase 2 - Planned)
 
