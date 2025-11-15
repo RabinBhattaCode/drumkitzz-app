@@ -19,7 +19,7 @@ export function ExtractionProgressDialog({ isOpen, progress, onClose }: Extracti
       case "error":
         return <XCircle className="h-12 w-12 text-red-500" />
       default:
-        return <Loader2 className="h-12 w-12 animate-spin text-blue-500" />
+        return <Loader2 className="h-12 w-12 animate-spin text-[#f5d97a]" />
     }
   }
 

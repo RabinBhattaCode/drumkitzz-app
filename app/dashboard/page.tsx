@@ -12,13 +12,22 @@ import {
   type Friend,
   type Activity,
 } from "@/lib/dashboard-data"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Separator } from "@/components/ui/separator"
-import { Music, CheckCircle2, FileEdit, Users, Play, Trash2, Plus, Clock, Share2, Heart, Download } from "lucide-react"
+import { PageHero } from "@/components/page-hero"
+import {
+  Music,
+  CheckCircle2,
+  FileEdit,
+  Users,
+  Plus,
+  Trash2,
+  Share2,
+  Heart,
+  Download,
+} from "lucide-react"
 
 export default function DashboardPage() {
   const { user, isAuthenticated, isLoading } = useAuth()
@@ -43,9 +52,9 @@ export default function DashboardPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-primary" />
           <p className="text-muted-foreground">Loading dashboard...</p>
         </div>
       </div>
@@ -54,6 +63,13 @@ export default function DashboardPage() {
 
   const finishedKits = kits.filter((k) => k.status === "finished")
   const draftKits = kits.filter((k) => k.status === "draft")
+
+  const heroStats = [
+      { label: "Total kits", value: kits.length.toString(), helper: "All projects", icon: Music },
+      { label: "Finished", value: finishedKits.length.toString(), helper: "Ready to share", icon: CheckCircle2 },
+      { label: "In progress", value: draftKits.length.toString(), helper: "Active drafts", icon: FileEdit },
+      { label: "Friends", value: friends.length.toString(), helper: "Connected creators", icon: Users },
+    ]
 
   const handleDelete = (id: string) => {
     if (confirm("Are you sure you want to delete this drum kit?")) {
@@ -86,313 +102,237 @@ export default function DashboardPage() {
     }
   }
 
-  return (
-    <div className="container mx-auto p-6 max-w-7xl">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center gap-4">
-          <Avatar className="h-16 w-16">
-            <AvatarImage src={user?.avatar || "/placeholder.svg"} alt={user?.username} />
-            <AvatarFallback>{user?.username?.[0]?.toUpperCase()}</AvatarFallback>
-          </Avatar>
-          <div>
-            <h1 className="text-3xl font-bold">Welcome back, {user?.username}!</h1>
-            <p className="text-muted-foreground">Here's what's happening with your drum kits</p>
-          </div>
+  const getActivityText = (type: Activity["type"]) => {
+    switch (type) {
+      case "created":
+        return "Created"
+      case "exported":
+        return "Exported"
+      case "shared":
+        return "Shared"
+      case "liked":
+        return "Liked"
+    }
+  }
+
+  const renderKitGrid = (list: DrumKit[]) => {
+    if (list.length === 0) {
+      return (
+        <div className="glass-panel border-dashed border-white/20 p-10 text-center text-white/70">
+          <Music className="mx-auto mb-4 h-10 w-10 text-white/40" />
+          <p>No kits in this view yet.</p>
         </div>
-        <Button onClick={() => router.push("/")} size="lg">
-          <Plus className="mr-2 h-4 w-4" />
-          Create New Kit
-        </Button>
+      )
+    }
+
+    return (
+      <div className="grid gap-4 md:grid-cols-2">
+        {list.map((kit) => (
+          <div
+            key={kit.id}
+            className="overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-[#0a070f] to-[#050308] text-white shadow-[0_18px_60px_rgba(3,3,7,0.55)]"
+          >
+            <div className="relative aspect-video">
+              <img src={kit.thumbnail || "/placeholder.svg"} alt={kit.name} className="h-full w-full object-cover" />
+              <Badge
+                className="absolute right-3 top-3 rounded-full bg-black/60 text-xs uppercase tracking-[0.3em]"
+                variant={kit.status === "finished" ? "default" : "secondary"}
+              >
+                {kit.status === "finished" ? "Finished" : "Draft"}
+              </Badge>
+            </div>
+            <div className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-lg font-semibold">{kit.name}</p>
+                  <p className="text-sm text-white/60">{formatDate(kit.lastModified)}</p>
+                </div>
+                <p className="text-xs uppercase tracking-[0.35em] text-white/50">{kit.sliceCount} slices</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110"
+                  onClick={() => router.push("/my-library")}
+                >
+                  Open
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="rounded-full border border-white/15 text-white/80 hover:text-white"
+                  onClick={() => handleDelete(kit.id)}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
+    )
+  }
 
-      <div className="grid gap-6 lg:grid-cols-4">
-        {/* Main Content */}
-        <div className="lg:col-span-3 space-y-6">
-          {/* Stats Cards */}
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Kits</CardTitle>
-                <Music className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{kits.length}</div>
-                <p className="text-xs text-muted-foreground">All drum kits</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Finished</CardTitle>
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{finishedKits.length}</div>
-                <p className="text-xs text-muted-foreground">Completed projects</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Drafts</CardTitle>
-                <FileEdit className="h-4 w-4 text-yellow-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{draftKits.length}</div>
-                <p className="text-xs text-muted-foreground">In progress</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Friends</CardTitle>
-                <Users className="h-4 w-4 text-blue-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{friends.length}</div>
-                <p className="text-xs text-muted-foreground">Connected users</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Drum Kits Tabs */}
-          <Card>
-            <CardHeader>
-              <CardTitle>My Drum Kits</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="all" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="all">All ({kits.length})</TabsTrigger>
-                  <TabsTrigger value="finished">Finished ({finishedKits.length})</TabsTrigger>
-                  <TabsTrigger value="drafts">Drafts ({draftKits.length})</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="all" className="space-y-4">
-                  {kits.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Music className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground mb-4">No drum kits yet</p>
-                      <Button onClick={() => router.push("/")}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Create Your First Kit
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {kits.map((kit) => (
-                        <Card key={kit.id} className="overflow-hidden">
-                          <div className="aspect-video relative bg-muted">
-                            <img
-                              src={kit.thumbnail || "/placeholder.svg"}
-                              alt={kit.name}
-                              className="object-cover w-full h-full"
-                            />
-                            <Badge
-                              className="absolute top-2 right-2"
-                              variant={kit.status === "finished" ? "default" : "secondary"}
-                            >
-                              {kit.status === "finished" ? (
-                                <>
-                                  <CheckCircle2 className="mr-1 h-3 w-3" /> Finished
-                                </>
-                              ) : (
-                                <>
-                                  <FileEdit className="mr-1 h-3 w-3" /> Draft
-                                </>
-                              )}
-                            </Badge>
-                          </div>
-                          <CardContent className="p-4">
-                            <h3 className="font-semibold mb-2">{kit.name}</h3>
-                            <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                              <span>{kit.sliceCount} slices</span>
-                              <span>•</span>
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" />
-                                {formatDate(kit.lastModified)}
-                              </span>
-                            </div>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="flex-1 bg-transparent"
-                                onClick={() => router.push(`/my-kits/${kit.id}`)}
-                              >
-                                <FileEdit className="mr-2 h-4 w-4" />
-                                Edit
-                              </Button>
-                              <Button size="sm" variant="outline">
-                                <Play className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => handleDelete(kit.id)}>
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="finished" className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {finishedKits.map((kit) => (
-                      <Card key={kit.id} className="overflow-hidden">
-                        <div className="aspect-video relative bg-muted">
-                          <img
-                            src={kit.thumbnail || "/placeholder.svg"}
-                            alt={kit.name}
-                            className="object-cover w-full h-full"
-                          />
-                          <Badge className="absolute top-2 right-2">
-                            <CheckCircle2 className="mr-1 h-3 w-3" /> Finished
-                          </Badge>
-                        </div>
-                        <CardContent className="p-4">
-                          <h3 className="font-semibold mb-2">{kit.name}</h3>
-                          <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                            <span>{kit.sliceCount} slices</span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {formatDate(kit.lastModified)}
-                            </span>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1 bg-transparent"
-                              onClick={() => router.push(`/my-kits/${kit.id}`)}
-                            >
-                              <FileEdit className="mr-2 h-4 w-4" />
-                              Edit
-                            </Button>
-                            <Button size="sm" variant="outline">
-                              <Play className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleDelete(kit.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="drafts" className="space-y-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    {draftKits.map((kit) => (
-                      <Card key={kit.id} className="overflow-hidden">
-                        <div className="aspect-video relative bg-muted">
-                          <img
-                            src={kit.thumbnail || "/placeholder.svg"}
-                            alt={kit.name}
-                            className="object-cover w-full h-full"
-                          />
-                          <Badge className="absolute top-2 right-2" variant="secondary">
-                            <FileEdit className="mr-1 h-3 w-3" /> Draft
-                          </Badge>
-                        </div>
-                        <CardContent className="p-4">
-                          <h3 className="font-semibold mb-2">{kit.name}</h3>
-                          <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
-                            <span>{kit.sliceCount} slices</span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {formatDate(kit.lastModified)}
-                            </span>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="flex-1 bg-transparent"
-                              onClick={() => router.push(`/my-kits/${kit.id}`)}
-                            >
-                              <FileEdit className="mr-2 h-4 w-4" />
-                              Edit
-                            </Button>
-                            <Button size="sm" variant="outline">
-                              <Play className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => handleDelete(kit.id)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
+  return (
+    <div className="w-full max-w-6xl space-y-8 px-4 py-10 lg:px-0">
+      <PageHero
+        eyebrow="Creator HQ"
+        title={`Welcome back, ${user?.username}!`}
+        description="Keep your drum kits, drafts, and community updates in one sleek workspace."
+        actions={
+          <>
+            <Button
+              className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110"
+              onClick={() => router.push("/")}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Create new kit
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-full border border-white/30 text-white hover:bg-white/10"
+              onClick={() => router.push("/marketplace")}
+            >
+              Explore marketplace
+            </Button>
+          </>
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {heroStats.map((stat) => (
+            <div
+              key={stat.label}
+              className="rounded-2xl border border-white/10 bg-white/5/80 px-4 py-3 text-white/80 backdrop-blur"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/50">{stat.label}</p>
+                  <p className="text-2xl font-semibold text-white">{stat.value}</p>
+                  <p className="text-xs text-white/60">{stat.helper}</p>
+                </div>
+                <stat.icon className="h-5 w-5 text-white/50" />
+              </div>
+            </div>
+          ))}
         </div>
+      </PageHero>
 
-        {/* Sidebar */}
+      <div className="grid gap-6 lg:grid-cols-[1.8fr,0.9fr]">
         <div className="space-y-6">
-          {/* Friends */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Friends</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {friends.map((friend) => (
-                <div key={friend.id} className="flex items-center gap-3">
-                  <div className="relative">
-                    <Avatar>
-                      <AvatarImage src={friend.avatar || "/placeholder.svg"} alt={friend.username} />
-                      <AvatarFallback>{friend.username[0].toUpperCase()}</AvatarFallback>
-                    </Avatar>
-                    {friend.isOnline && (
-                      <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-background rounded-full" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{friend.username}</p>
-                    <p className="text-xs text-muted-foreground">{friend.sharedKits} kits shared</p>
-                  </div>
-                </div>
-              ))}
-              <Separator />
-              <Button variant="outline" className="w-full bg-transparent" size="sm">
+          <section className="glass-panel space-y-6 p-6">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-white/50">Library</p>
+                <h2 className="font-display text-2xl text-white">My Drum Kits</h2>
+              </div>
+              <Button
+                variant="outline"
+                className="rounded-full border-white/30 text-white hover:bg-white/10"
+                onClick={() => router.push("/create")}
+              >
                 <Plus className="mr-2 h-4 w-4" />
-                Add Friend
+                Start slicing
               </Button>
-            </CardContent>
-          </Card>
+            </div>
+            <Tabs defaultValue="all" className="w-full">
+              <TabsList className="grid w-full grid-cols-3 rounded-full bg-white/5 p-1">
+                <TabsTrigger value="all" className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black">
+                  All ({kits.length})
+                </TabsTrigger>
+                <TabsTrigger value="finished" className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black">
+                  Finished ({finishedKits.length})
+                </TabsTrigger>
+                <TabsTrigger value="drafts" className="rounded-full data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black">
+                  Drafts ({draftKits.length})
+                </TabsTrigger>
+              </TabsList>
 
-          {/* Recent Activity */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+              <TabsContent value="all" className="mt-6">
+                {renderKitGrid(kits)}
+              </TabsContent>
+              <TabsContent value="finished" className="mt-6">
+                {renderKitGrid(finishedKits)}
+              </TabsContent>
+              <TabsContent value="drafts" className="mt-6">
+                {renderKitGrid(draftKits)}
+              </TabsContent>
+            </Tabs>
+          </section>
+        </div>
+
+        <aside className="space-y-6">
+          <section className="glass-panel space-y-4 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-white/50">Social</p>
+                <h3 className="font-display text-xl">Friends online</h3>
+              </div>
+              <Badge className="rounded-full bg-white/10 text-xs text-white">Live</Badge>
+            </div>
+            <div className="space-y-3">
+              {friends.map((friend) => (
+                <div
+                  key={friend.id}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10">
+                      <AvatarImage src={friend.avatar || "/placeholder.svg"} />
+                      <AvatarFallback>{friend.username[0]?.toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="text-sm font-semibold text-white">{friend.username}</p>
+                      <p className="text-xs text-white/60">{friend.bio}</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={friend.isFollowing ? "secondary" : "ghost"}
+                    className="rounded-full border border-white/15 text-white hover:bg-white/10"
+                  >
+                    {friend.isFollowing ? "Following" : "Follow"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="glass-panel space-y-4 p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-white/50">Timeline</p>
+                <h3 className="font-display text-xl">Recent activity</h3>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full border border-white/15 text-white/70 hover:bg-white/10"
+                onClick={() => setActivities([])}
+              >
+                Clear
+              </Button>
+            </div>
+            <div className="space-y-3">
               {activities.map((activity) => (
-                <div key={activity.id} className="flex items-start gap-3">
-                  <div className="mt-1 p-2 rounded-full bg-muted">{getActivityIcon(activity.type)}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm">
-                      {activity.type === "created" && "Created "}
-                      {activity.type === "exported" && "Exported "}
-                      {activity.type === "shared" && "Shared "}
-                      {activity.type === "liked" && "Liked "}
-                      <span className="font-medium">{activity.kitName}</span>
+                <div
+                  key={activity.id}
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3"
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white">
+                    {getActivityIcon(activity.type)}
+                  </div>
+                  <div>
+                    <p className="text-sm text-white">
+                      {getActivityText(activity.type)} <span className="font-semibold">{activity.kitName}</span>
                     </p>
-                    <p className="text-xs text-muted-foreground">{formatDate(activity.timestamp)}</p>
+                    <p className="text-xs text-white/60">{formatDate(activity.timestamp)}</p>
                   </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </section>
+        </aside>
       </div>
     </div>
   )

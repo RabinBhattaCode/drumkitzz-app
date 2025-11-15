@@ -4,11 +4,10 @@ import { useState } from "react"
 import Image from "next/image"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Download, Star, Heart, TrendingUp, Users } from "lucide-react"
+import { PageHero } from "@/components/page-hero"
 
-// Mock data for top creators
 const TOP_CREATORS = [
   {
     id: "creator1",
@@ -57,7 +56,6 @@ const TOP_CREATORS = [
   },
 ]
 
-// Mock data for top kits
 const TOP_KITS = [
   {
     id: "kit1",
@@ -116,8 +114,8 @@ export default function ChartsPage() {
   const [kits, setKits] = useState(TOP_KITS)
 
   const handleFollowCreator = (creatorId: string) => {
-    setCreators(
-      creators.map((creator) =>
+    setCreators((prev) =>
+      prev.map((creator) =>
         creator.id === creatorId
           ? {
               ...creator,
@@ -130,98 +128,119 @@ export default function ChartsPage() {
   }
 
   const handleLikeKit = (kitId: string) => {
-    setKits(kits.map((kit) => (kit.id === kitId ? { ...kit, isLiked: !kit.isLiked } : kit)))
+    setKits((prev) => prev.map((kit) => (kit.id === kitId ? { ...kit, isLiked: !kit.isLiked } : kit)))
   }
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-6">Charts</h1>
+    <div className="w-full max-w-6xl space-y-8 px-4 py-10 lg:px-0">
+      <PageHero
+        eyebrow="Marketplace"
+        title="Trending charts"
+        description="Track the creators, kits, and genres shaping the DrumKitzz economy."
+      />
 
-      <Tabs defaultValue="creators">
-        <TabsList className="mb-6">
-          <TabsTrigger value="creators">Top Creators</TabsTrigger>
-          <TabsTrigger value="kits">Top Kits</TabsTrigger>
+      <Tabs defaultValue="creators" className="w-full">
+        <TabsList className="mb-6 grid w-full grid-cols-2 rounded-full bg-white/5 p-1">
+          <TabsTrigger
+            value="creators"
+            className="rounded-full text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
+          >
+            Top creators
+          </TabsTrigger>
+          <TabsTrigger
+            value="kits"
+            className="rounded-full text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
+          >
+            Top kits
+          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="creators">
-          <div className="space-y-4">
-            {creators.map((creator, index) => (
-              <Card key={creator.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="font-bold text-xl text-muted-foreground w-8 text-center">#{index + 1}</div>
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage src={creator.avatar || "/placeholder.svg"} />
-                      <AvatarFallback>{creator.name[0]}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1">
-                      <h3 className="font-bold">{creator.name}</h3>
-                      <div className="flex gap-4 text-sm text-muted-foreground">
-                        <div className="flex items-center">
-                          <Users className="h-4 w-4 mr-1" />
-                          {creator.followers.toLocaleString()}
-                        </div>
-                        <div>{creator.kits} kits</div>
-                        <div className="flex items-center">
-                          <Download className="h-4 w-4 mr-1" />
-                          {creator.downloads.toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-                    <Button
-                      variant={creator.isFollowing ? "outline" : "default"}
-                      onClick={() => handleFollowCreator(creator.id)}
-                    >
-                      {creator.isFollowing ? "Following" : "Follow"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+        <TabsContent value="creators" className="space-y-4">
+          {creators.map((creator, index) => (
+            <div
+              key={creator.id}
+              className="flex items-center gap-4 rounded-[28px] border border-white/10 bg-black/30 p-4 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)]"
+            >
+              <div className="text-2xl font-bold text-white/30">#{index + 1}</div>
+              <Avatar className="h-12 w-12">
+                <AvatarImage src={creator.avatar || "/placeholder.svg"} alt={creator.name} />
+                <AvatarFallback>{creator.name[0]}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <p className="text-lg font-semibold">{creator.name}</p>
+                <div className="flex flex-wrap gap-4 text-sm text-white/60">
+                  <span className="flex items-center gap-1">
+                    <Users className="h-4 w-4" />
+                    {creator.followers.toLocaleString()} followers
+                  </span>
+                  <span>{creator.kits} kits</span>
+                  <span className="flex items-center gap-1">
+                    <Download className="h-4 w-4" />
+                    {creator.downloads.toLocaleString()} downloads
+                  </span>
+                </div>
+              </div>
+              <Button
+                variant={creator.isFollowing ? "secondary" : "ghost"}
+                className="rounded-full border border-white/15 text-white hover:bg-white/10"
+                onClick={() => handleFollowCreator(creator.id)}
+              >
+                {creator.isFollowing ? "Following" : "Follow"}
+              </Button>
+            </div>
+          ))}
         </TabsContent>
 
         <TabsContent value="kits">
-          <div className="grid md:grid-cols-2 gap-6">
+          <div className="grid gap-6 md:grid-cols-2">
             {kits.map((kit, index) => (
-              <Card key={kit.id}>
-                <CardContent className="p-0">
-                  <div className="flex">
-                    <div className="relative h-32 w-32">
-                      <Image src={kit.image || "/placeholder.svg"} alt={kit.name} fill className="object-cover" />
-                      <div className="absolute top-2 left-2 bg-black/70 text-white px-2 py-1 rounded-md text-sm font-bold">
-                        #{index + 1}
-                      </div>
-                    </div>
-                    <div className="flex-1 p-4">
-                      <div className="flex justify-between">
-                        <div>
-                          <h3 className="font-bold">{kit.name}</h3>
-                          <p className="text-sm text-muted-foreground">by {kit.creator}</p>
-                        </div>
-                        <Button variant="ghost" size="icon" onClick={() => handleLikeKit(kit.id)}>
-                          <Heart className={`h-5 w-5 ${kit.isLiked ? "fill-red-500 text-red-500" : ""}`} />
-                        </Button>
-                      </div>
-                      <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                        <div className="flex items-center">
-                          <Download className="h-4 w-4 mr-1" />
-                          {kit.downloads.toLocaleString()}
-                        </div>
-                        <div className="flex items-center">
-                          <Star className="h-4 w-4 fill-yellow-400 text-yellow-400 mr-1" />
-                          {kit.rating}
-                        </div>
-                        <div className="flex items-center">
-                          <TrendingUp className="h-4 w-4 mr-1" />
-                          Trending
-                        </div>
-                      </div>
-                      <div className="mt-2 font-bold">${kit.price}</div>
-                    </div>
+              <div
+                key={kit.id}
+                className="overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-[#090712] to-[#050308] text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)]"
+              >
+                <div className="relative h-44 w-full">
+                  <Image src={kit.image || "/placeholder.svg"} alt={kit.name} fill className="object-cover" />
+                  <div className="absolute left-4 top-4 rounded-full bg-black/60 px-3 py-1 text-sm font-semibold">
+                    #{index + 1}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+                <div className="space-y-3 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-lg font-semibold">{kit.name}</p>
+                      <p className="text-sm text-white/60">by {kit.creator}</p>
+                    </div>
+                    <div className="rounded-full border border-white/15 px-3 py-1 text-sm">${kit.price.toFixed(2)}</div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4 text-sm text-white/70">
+                    <span className="flex items-center gap-1">
+                      <TrendingUp className="h-4 w-4" />
+                      {kit.downloads.toLocaleString()} downloads
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Star className="h-4 w-4" />
+                      {kit.rating.toFixed(1)}
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110"
+                    >
+                      Purchase
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="rounded-full border border-white/15 text-white/70 hover:text-white"
+                      onClick={() => handleLikeKit(kit.id)}
+                    >
+                      <Heart className={`mr-2 h-4 w-4 ${kit.isLiked ? "fill-current text-rose-300" : ""}`} />
+                      {kit.isLiked ? "Liked" : "Like"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         </TabsContent>

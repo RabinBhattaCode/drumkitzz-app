@@ -139,9 +139,9 @@ export function SampleEditor({
           <Label>Start Time: {startTime.toFixed(3)}s</Label>
           <Label>End Time: {endTime.toFixed(3)}s</Label>
         </div>
-        <div className="h-8 bg-muted rounded-md relative">
+        <div className="h-8 rounded-md border border-white/10 bg-black/40 relative overflow-hidden">
           <div
-            className="absolute h-full bg-blue-600/20 rounded-md"
+            className="absolute h-full rounded-md bg-gradient-to-r from-[#f5d97a]/40 to-[#f0b942]/40"
             style={{
               left: `${(startTime / audioBuffer.duration) * 100}%`,
               width: `${((endTime - startTime) / audioBuffer.duration) * 100}%`,
@@ -181,13 +181,23 @@ export function SampleEditor({
         </div>
 
         <div className="grid grid-cols-3 gap-2 mb-3">
-          <Button variant="outline" size="sm" onClick={() => handleApplyPreset("none")}>
+          <Button variant="outline" size="sm" className="border-white/20 text-white/80" onClick={() => handleApplyPreset("none")}>
             None
           </Button>
-          <Button variant="outline" size="sm" onClick={() => handleApplyPreset("soft")}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-white/20 text-white/80 hover:border-[#f5d97a]/60 hover:text-white"
+            onClick={() => handleApplyPreset("soft")}
+          >
             Soft (10ms)
           </Button>
-          <Button variant="outline" size="sm" onClick={() => handleApplyPreset("dj")}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-white/20 text-white/80 hover:border-[#f0b942]/70 hover:text-white"
+            onClick={() => handleApplyPreset("dj")}
+          >
             DJ (50ms)
           </Button>
         </div>
@@ -204,23 +214,23 @@ export function SampleEditor({
           </div>
         </div>
 
-        <div className="h-4 bg-muted rounded-sm relative">
+        <div className="h-4 rounded-sm relative border border-white/10 bg-black/30 overflow-hidden">
           <div
-            className="absolute h-full bg-blue-500/20 rounded-sm"
+            className="absolute h-full bg-[#f5d97a]/10 rounded-sm"
             style={{
               left: `${Math.min(fadeIn / 5, 20)}%`,
               right: `${Math.min(fadeOut / 25, 20)}%`,
             }}
           />
           <div
-            className="absolute h-full bg-gradient-to-r from-transparent to-blue-500/20 rounded-l-sm"
+            className="absolute h-full bg-gradient-to-r from-transparent to-[#f5d97a]/30 rounded-l-sm"
             style={{
               left: 0,
               width: `${Math.min(fadeIn / 5, 20)}%`,
             }}
           />
           <div
-            className="absolute h-full bg-gradient-to-l from-transparent to-blue-500/20 rounded-r-sm"
+            className="absolute h-full bg-gradient-to-l from-transparent to-[#f0b942]/30 rounded-r-sm"
             style={{
               right: 0,
               width: `${Math.min(fadeOut / 25, 20)}%`,
@@ -230,11 +240,11 @@ export function SampleEditor({
       </div>
 
       <div className="flex justify-between">
-        <Button variant="outline" onClick={onPlay}>
+        <Button variant="outline" className="border-white/20 text-white/80 hover:text-white" onClick={onPlay}>
           <Play className="h-4 w-4 mr-2" />
           Preview
         </Button>
-        <Button onClick={handleSave}>
+        <Button className="bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110" onClick={handleSave}>
           <Save className="h-4 w-4 mr-2" />
           Save Changes
         </Button>

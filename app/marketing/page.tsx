@@ -92,7 +92,7 @@ export default function MarketingLandingPage() {
             </button>
           ))}
         </nav>
-        <Link href="/home">
+        <Link href="/home" target="_blank" rel="noreferrer">
           <Button className="rounded-full border border-white/30 bg-gradient-to-r from-white/15 to-white/5 text-white shadow-[0_0_25px_rgba(255,255,255,0.2)] hover:bg-white/20">
             Slice for free
           </Button>
@@ -115,10 +115,10 @@ export default function MarketingLandingPage() {
             your vault.
           </p>
           <div className="flex flex-wrap justify-center gap-3">
-            <Link href="/home">
+            <Link href="/home" target="_blank" rel="noreferrer">
               <Button className="rounded-full bg-amber-400 text-black hover:bg-amber-300">Get started – it’s free</Button>
             </Link>
-            <Link href="/create">
+            <Link href="/create" target="_blank" rel="noreferrer">
               <Button variant="outline" className="rounded-full border-white/30 text-white hover:bg-white/10">
                 See the builder
               </Button>

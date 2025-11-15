@@ -11,6 +11,25 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Knob } from "./knob"
 
+const SLICE_COLOR_MAP: Record<string, string> = {
+  kick: "#f5d97a",
+  snare: "#6b738b",
+  hat: "#7f8c9d",
+  tom: "#f0b942",
+  cymb: "#b084ff",
+  perc: "#d6a8ff",
+  bass: "#6fd0c0",
+}
+
+const colorWithAlpha = (hex: string, alpha: number) => {
+  const sanitized = hex.replace("#", "")
+  const bigint = Number.parseInt(sanitized.length === 3 ? sanitized.repeat(2) : sanitized, 16)
+  const r = (bigint >> 16) & 255
+  const g = (bigint >> 8) & 255
+  const b = bigint & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 interface DrumSampleProps {
   slice: {
     id: string
@@ -166,7 +185,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
       const fadeInEnd = Math.min(startSample + fadeInSamples, zoomEndSample)
       const fadeInWidth = ((fadeInEnd - zoomStartSample) / totalZoomedSamples) * width
 
-      ctx.fillStyle = "rgba(59, 130, 246, 0.2)" // Blue with transparency
+      ctx.fillStyle = "rgba(245, 217, 122, 0.2)"
       ctx.beginPath()
       ctx.moveTo(0, 0)
       ctx.lineTo(fadeInWidth, 0)
@@ -176,7 +195,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
       ctx.fill()
 
       // Fade in curve
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.6)"
+      ctx.strokeStyle = "rgba(245, 217, 122, 0.7)"
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(0, height)
@@ -192,7 +211,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
       const fadeOutStart = Math.max(endSample - fadeOutSamples, zoomStartSample)
       const fadeOutStartX = ((fadeOutStart - zoomStartSample) / totalZoomedSamples) * width
 
-      ctx.fillStyle = "rgba(239, 68, 68, 0.2)" // Red with transparency
+      ctx.fillStyle = "rgba(240, 185, 66, 0.18)"
       ctx.beginPath()
       ctx.moveTo(fadeOutStartX, 0)
       ctx.lineTo(width, 0)
@@ -202,7 +221,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
       ctx.fill()
 
       // Fade out curve
-      ctx.strokeStyle = "rgba(239, 68, 68, 0.6)"
+      ctx.strokeStyle = "rgba(240, 185, 66, 0.75)"
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(fadeOutStartX, 0)
@@ -214,21 +233,9 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
     }
   }
 
-  const getColorForType = (type: string): string => {
-    switch (type) {
-      case "kick":
-        return "#ef4444"
-      case "snare":
-        return "#3b82f6"
-      case "hat":
-        return "#10b981"
-      case "tom":
-        return "#f59e0b"
-      case "cymb":
-        return "#8b5cf6"
-      default:
-        return "#a855f7"
-    }
+  const getColorForType = (type: string, alpha = 1): string => {
+    const base = SLICE_COLOR_MAP[type] || "#f5d97a"
+    return colorWithAlpha(base, alpha)
   }
 
   const handlePlayClick = async () => {
@@ -321,8 +328,13 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
   }
 
   return (
-    <Card className={`overflow-hidden ${isSelected ? "border-blue-500 ring-1 ring-blue-500" : ""}`} onClick={onSelect}>
-      <CardContent className="p-4">
+    <Card
+      className={`overflow-hidden border border-white/10 bg-gradient-to-b from-[#0c0a11] to-[#050307] text-white transition ${
+        isSelected ? "ring-1 ring-[#f5d97a]/60" : ""
+      }`}
+      onClick={onSelect}
+    >
+      <CardContent className="p-4 space-y-3">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center space-x-2">
             <div className="flex items-center space-x-2">
@@ -345,14 +357,14 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
                 {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
               </Button>
             </div>
-            <span className="text-sm truncate">{slice.name}</span>
+            <span className="text-sm truncate text-white/90">{slice.name}</span>
           </div>
-          <span className="text-xs text-muted-foreground">{((slice.end - slice.start) * 1000).toFixed(0)}ms</span>
+          <span className="text-xs text-white/50">{((slice.end - slice.start) * 1000).toFixed(0)}ms</span>
         </div>
 
         <div
           ref={containerRef}
-          className="h-60 bg-muted rounded-md overflow-hidden mb-2 relative"
+          className="h-60 rounded-2xl border border-white/10 bg-black/30 overflow-hidden relative"
           onMouseMove={(e) => {
             handleMouseMove(e)
             handleCanvasMouseMove(e)
@@ -369,47 +381,39 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
           {/* Fade handles that appear on hover */}
           {isHoveringStart && (
             <div
-              className="absolute left-0 top-0 bottom-0 w-6 bg-blue-500/20 cursor-col-resize flex items-center justify-center"
+              className="absolute left-0 top-0 bottom-0 w-6 bg-[#f5d97a]/15 cursor-col-resize flex items-center justify-center"
               onClick={(e) => {
                 e.stopPropagation()
                 const newFadeIn = Math.min(100, slice.fadeIn + 5)
                 handleFadeChange("fadeIn", newFadeIn)
               }}
             >
-              <div className="h-12 w-1 bg-blue-500 rounded-full"></div>
+              <div className="h-12 w-1 rounded-full bg-gradient-to-b from-[#f5d97a] to-[#f0b942]"></div>
             </div>
           )}
 
           {isHoveringEnd && (
             <div
-              className="absolute right-0 top-0 bottom-0 w-6 bg-red-500/20 cursor-col-resize flex items-center justify-center"
+              className="absolute right-0 top-0 bottom-0 w-6 bg-[#f0a53b]/15 cursor-col-resize flex items-center justify-center"
               onClick={(e) => {
                 e.stopPropagation()
                 const newFadeOut = Math.min(500, slice.fadeOut + 10)
                 handleFadeChange("fadeOut", newFadeOut)
               }}
             >
-              <div className="h-12 w-1 bg-red-500 rounded-full"></div>
+              <div className="h-12 w-1 rounded-full bg-gradient-to-b from-[#f0b942] to-[#eb8b37]"></div>
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center space-x-1">
-            <span className="text-xs text-blue-500">&lt;</span>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3">
+          <div className="flex items-center flex-wrap gap-1 text-white/70">
+            <span className="text-xs text-white/60">&lt;</span>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <div className="mx-1">
-                    <Knob
-                      value={slice.fadeIn}
-                      min={0}
-                      max={100}
-                      step={1}
-                      size={20}
-                      activeColor="#3b82f6"
-                      onChange={(value) => handleFadeChange("fadeIn", value)}
-                    />
+                    <Knob value={slice.fadeIn} min={0} max={100} step={1} size={20} activeColor="#f5d97a" onChange={(value) => handleFadeChange("fadeIn", value)} />
                   </div>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -417,7 +421,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <span className="text-xs">ms</span>
+            <span className="text-xs text-white/50">ms</span>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -428,7 +432,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
                       max={500}
                       step={5}
                       size={20}
-                      activeColor="#ef4444"
+                      activeColor="#f0b942"
                       onChange={(value) => handleFadeChange("fadeOut", value)}
                     />
                   </div>
@@ -438,7 +442,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <span className="text-xs">ms</span>
+            <span className="text-xs text-white/50">ms</span>
             <div className="flex items-center space-x-1">
               <Button
                 variant="ghost"
@@ -450,7 +454,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
                   handleFadeChange("fadeOut", newFadeOut)
                 }}
               >
-                <span className="text-xs">-</span>
+                <span className="text-xs text-white/80">-</span>
               </Button>
               <Button
                 variant="ghost"
@@ -462,7 +466,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
                   handleFadeChange("fadeOut", newFadeOut)
                 }}
               >
-                <span className="text-xs">+</span>
+                <span className="text-xs text-white/80">+</span>
               </Button>
             </div>
           </div>
@@ -470,7 +474,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
             <Button
               variant="outline"
               size="icon"
-              className="h-6 w-6"
+              className="h-6 w-6 border-white/20 text-white/80 hover:text-white"
               onClick={(e) => {
                 e.stopPropagation()
                 setZoomLevel(Math.max(1, zoomLevel - 0.5))
@@ -482,7 +486,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
             <Button
               variant="outline"
               size="icon"
-              className="h-6 w-6"
+              className="h-6 w-6 border-white/20 text-white/80 hover:text-white"
               onClick={(e) => {
                 e.stopPropagation()
                 setZoomLevel(Math.min(20, zoomLevel + 0.5))
@@ -495,7 +499,7 @@ export function DrumSample({ slice, audioBuffer, onPlay, onUpdate, onSelect, isS
         </div>
 
         <Select value={slice.type} onValueChange={handleTypeChange}>
-          <SelectTrigger className="w-full mt-2">
+          <SelectTrigger className="w-full mt-1 border-white/20 text-white">
             <SelectValue placeholder="Select type" />
           </SelectTrigger>
           <SelectContent>

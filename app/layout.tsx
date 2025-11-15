@@ -1,10 +1,9 @@
 import type React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
-import Navbar from "@/components/navbar"
 import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from "@/lib/auth-context"
-import { SignInOverlay } from "@/components/sign-in-overlay"
+import { LayoutShell } from "@/components/layout-shell"
 
 export const metadata: Metadata = {
   title: "DrumKitzz - Create and Share Drum Kits",
@@ -24,9 +23,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="min-h-screen bg-background antialiased">
         <AuthProvider>
-          <Navbar />
-          <SignInOverlay />
-          <main className="pt-16 md:pt-0 md:pl-52">{children}</main>
+          <LayoutShell>{children}</LayoutShell>
           <Toaster />
         </AuthProvider>
       </body>

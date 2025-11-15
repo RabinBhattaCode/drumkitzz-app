@@ -4,6 +4,25 @@ import type React from "react"
 
 import { useEffect, useRef, useState } from "react"
 
+const SLICE_BASE_COLORS: Record<string, string> = {
+  kick: "#f5d97a",
+  snare: "#6b738b",
+  hat: "#7f8c9d",
+  tom: "#f0b942",
+  cymb: "#b084ff",
+  perc: "#d6a8ff",
+  bass: "#6fd0c0",
+}
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const sanitized = hex.replace("#", "")
+  const bigint = Number.parseInt(sanitized.length === 3 ? sanitized.repeat(2) : sanitized, 16)
+  const r = (bigint >> 16) & 255
+  const g = (bigint >> 8) & 255
+  const b = bigint & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 // Add onZoomChange to the props interface
 interface WaveformProps {
   audioBuffer: AudioBuffer
@@ -210,8 +229,12 @@ export function Waveform({
 
     ctx.beginPath()
     ctx.moveTo(0, amp)
-    ctx.strokeStyle = "#0ea5e9"
-    ctx.lineWidth = 1.5
+    const gradient = ctx.createLinearGradient(0, 0, width, 0)
+    gradient.addColorStop(0, "rgba(245, 217, 122, 0.95)")
+    gradient.addColorStop(0.5, "rgba(240, 185, 66, 0.9)")
+    gradient.addColorStop(1, "rgba(167, 139, 250, 0.85)")
+    ctx.strokeStyle = gradient
+    ctx.lineWidth = 1.6
 
     for (let i = 0; i < width; i++) {
       let min = 1.0
@@ -261,7 +284,7 @@ export function Waveform({
         const x = ((position - startTime) / duration) * width
 
         // Draw potential slice marker (gray line)
-        ctx.strokeStyle = "rgba(200, 200, 200, 0.5)"
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.25)"
         ctx.lineWidth = 1
         ctx.setLineDash([4, 2])
 
@@ -293,11 +316,11 @@ export function Waveform({
       const endX = Math.min(width, ((sliceEnd - startTime) / duration) * width)
 
       // Draw slice background
-      ctx.fillStyle = "rgba(59, 130, 246, 0.2)" // Blue with transparency
+      ctx.fillStyle = "rgba(245, 217, 122, 0.2)"
       ctx.fillRect(startX, 0, endX - startX, height)
 
       // Draw slice borders
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.8)"
+      ctx.strokeStyle = "rgba(245, 217, 122, 0.8)"
       ctx.lineWidth = 2
       ctx.setLineDash([5, 5])
 
@@ -417,7 +440,7 @@ export function Waveform({
 
   // Draw playhead
   const drawPlayhead = (ctx: CanvasRenderingContext2D, x: number, height: number) => {
-    ctx.strokeStyle = "#ef4444"
+    ctx.strokeStyle = "#f5d97a"
     ctx.lineWidth = 2
 
     ctx.beginPath()
@@ -426,7 +449,7 @@ export function Waveform({
     ctx.stroke()
 
     // Draw playhead handle
-    ctx.fillStyle = "#ef4444"
+    ctx.fillStyle = "#f5d97a"
     ctx.beginPath()
     ctx.arc(x, 10, 5, 0, Math.PI * 2)
     ctx.fill()
@@ -434,16 +457,8 @@ export function Waveform({
 
   // Get color for slice type
   const getSliceColor = (type: string, alpha: number): string => {
-    const colors: Record<string, string> = {
-      kick: `rgba(239, 68, 68, ${alpha})`, // red
-      snare: `rgba(59, 130, 246, ${alpha})`, // blue
-      hat: `rgba(16, 185, 129, ${alpha})`, // green
-      tom: `rgba(245, 158, 11, ${alpha})`, // amber
-      cymb: `rgba(139, 92, 246, ${alpha})`, // purple
-      perc: `rgba(168, 85, 247, ${alpha})`, // fuchsia
-    }
-
-    return colors[type] || `rgba(168, 85, 247, ${alpha})`
+    const base = SLICE_BASE_COLORS[type] || "#f5d97a"
+    return hexToRgba(base, alpha)
   }
 
   // Find if a marker is at the given position
@@ -736,10 +751,9 @@ export function Waveform({
     const thumbPositionPercent = scrollPosition * (100 - thumbWidthPercent)
 
     return (
-      <div className="absolute bottom-0 left-0 right-0 h-4 bg-gray-800 rounded-b-md">
-        {/* Scrollbar track and thumb */}
+      <div className="pointer-events-auto absolute -bottom-5 left-0 right-0 h-3">
         <div
-          className="absolute bottom-0 left-0 right-0 h-4 bg-gray-700 rounded-b-md cursor-pointer"
+          className="absolute inset-0 h-3 rounded-full bg-white/5"
           onClick={(e) => {
             // Handle click on the scrollbar track
             if (containerRef.current) {
@@ -754,7 +768,7 @@ export function Waveform({
           }}
         >
           <div
-            className="absolute h-full bg-blue-500 hover:bg-blue-400 rounded-md cursor-grab active:cursor-grabbing transition-colors"
+            className="absolute h-full rounded-full bg-gradient-to-r from-[#f5d97a] via-[#f0b942] to-[#e79c3a] shadow-[0_0_12px_rgba(245,217,122,0.5)] cursor-grab active:cursor-grabbing transition-all"
             style={{
               width: `${thumbWidthPercent}%`,
               left: `${thumbPositionPercent}%`,
@@ -797,7 +811,8 @@ export function Waveform({
 
           // Calculate new position ensuring it stays within bounds
           const newThumbPos = Math.max(0, Math.min(100 - thumbWidthPercent, scrollbarDragStart.thumbPos + deltaPercent))
-          const newScrollPosition = newThumbPos / (100 - thumbWidthPercent)
+          const denominator = Math.max(0.0001, 100 - thumbWidthPercent)
+          const newScrollPosition = denominator === 0 ? 0 : newThumbPos / denominator
 
           onScrollChange(newScrollPosition)
         }
@@ -830,7 +845,7 @@ export function Waveform({
   return (
     <div
       ref={containerRef}
-      className="w-full h-full relative bg-muted rounded-md overflow-hidden"
+      className="w-full h-full relative rounded-[24px] bg-black/30 overflow-visible"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -840,7 +855,7 @@ export function Waveform({
     >
       <canvas
         ref={canvasRef}
-        className="w-full h-[calc(100%-4px)] cursor-grab"
+        className="w-full h-full cursor-grab"
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUp}

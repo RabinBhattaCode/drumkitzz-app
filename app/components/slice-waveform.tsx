@@ -4,6 +4,25 @@ import type React from "react"
 
 import { useEffect, useRef, useState } from "react"
 
+const SLICE_COLOR_MAP: Record<string, string> = {
+  kick: "#f5d97a",
+  snare: "#6b738b",
+  hat: "#7f8c9d",
+  tom: "#f0b942",
+  cymb: "#b084ff",
+  perc: "#d6a8ff",
+  bass: "#6fd0c0",
+}
+
+const colorWithAlpha = (hex: string, alpha: number) => {
+  const sanitized = hex.replace("#", "")
+  const bigint = Number.parseInt(sanitized.length === 3 ? sanitized.repeat(2) : sanitized, 16)
+  const r = (bigint >> 16) & 255
+  const g = (bigint >> 8) & 255
+  const b = bigint & 255
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 interface SliceWaveformProps {
   audioBuffer: AudioBuffer
   start: number
@@ -200,7 +219,7 @@ export function SliceWaveform({
     if (fadeIn > 0 && visibleStart <= fadeInEndTime) {
       const fadeInEndX = Math.min(width, ((fadeInEndTime - visibleStart) / visibleDuration) * width)
 
-      ctx.fillStyle = "rgba(59, 130, 246, 0.2)" // Blue with transparency
+      ctx.fillStyle = "rgba(245, 217, 122, 0.2)"
       ctx.beginPath()
       ctx.moveTo(0, 0)
       ctx.lineTo(fadeInEndX, 0)
@@ -210,7 +229,7 @@ export function SliceWaveform({
       ctx.fill()
 
       // Fade in curve with S-shape
-      ctx.strokeStyle = "rgba(59, 130, 246, 0.6)"
+      ctx.strokeStyle = "rgba(245, 217, 122, 0.8)"
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(0, height)
@@ -251,7 +270,7 @@ export function SliceWaveform({
     if (fadeOut > 0 && visibleEnd >= fadeOutStartTime) {
       const fadeOutStartX = Math.max(0, ((fadeOutStartTime - visibleStart) / visibleDuration) * width)
 
-      ctx.fillStyle = "rgba(239, 68, 68, 0.2)" // Red with transparency
+      ctx.fillStyle = "rgba(240, 185, 66, 0.18)"
       ctx.beginPath()
       ctx.moveTo(fadeOutStartX, 0)
       ctx.lineTo(width, 0)
@@ -261,7 +280,7 @@ export function SliceWaveform({
       ctx.fill()
 
       // Fade out curve with mirrored S-shape
-      ctx.strokeStyle = "rgba(239, 68, 68, 0.6)"
+      ctx.strokeStyle = "rgba(240, 185, 66, 0.8)"
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(fadeOutStartX, 0)
@@ -682,4 +701,9 @@ export function SliceWaveform({
       />
     </div>
   )
+}
+
+const getColorForType = (type: string, alpha = 1) => {
+  const base = SLICE_COLOR_MAP[type] || "#f5d97a"
+  return colorWithAlpha(base, alpha)
 }

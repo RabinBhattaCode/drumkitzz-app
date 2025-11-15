@@ -10,23 +10,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import {
-  Upload,
-  Mic,
-  Play,
-  Pause,
-  Square,
-  Minus,
-  Plus,
-  Settings,
-  ChevronLeft,
-  ChevronRight,
-  ZoomIn,
-  ZoomOut,
-  ChevronDown,
-  Trash,
-} from "lucide-react"
-import { useToast } from "@/components/ui/use-toast"
+import { Upload, Mic, Play, Pause, Square, Minus, Plus, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, ChevronDown, Trash, Settings } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 import { YouTubeExtractor } from "@/app/components/youtube-extractor"
 import { SliceWaveform } from "@/app/components/slice-waveform"
 import { Waveform } from "@/app/components/waveform"
@@ -45,6 +30,7 @@ import { extractDrumsWithLalalAI, type ExtractionProgress } from "@/lib/audio-ex
 import { ExtractionProgressDialog } from "@/app/components/extraction-progress-dialog"
 import { useAuth } from "@/lib/auth-context"
 import { useRouter } from "next/navigation"
+import { cn } from "@/lib/utils"
 
 // Define OfflineContext type
 type OfflineContext = OfflineAudioContext
@@ -65,6 +51,23 @@ const KIT_OUTPUT_OPTIONS: Array<{ id: KitOutputId; title: string; description: s
 
 const MIN_TRIM_DURATION = 3
 const MAX_TRIM_DURATION = 60
+
+const formatTime = (value: number) => {
+  if (!Number.isFinite(value)) return "0:00"
+  const minutes = Math.floor(value / 60)
+  const seconds = Math.floor(Math.max(0, value % 60))
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
+
+const SLICE_ACCENT_COLORS: Record<string, string> = {
+  kick: "#f5d97a",
+  snare: "#6b738b",
+  hat: "#7f8c9d",
+  tom: "#f0b942",
+  cymb: "#b084ff",
+  perc: "#d6a8ff",
+  bass: "#6fd0c0",
+}
 
 type DrumSlicerProProps = {
   variant?: "classic" | "modern"
@@ -158,10 +161,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [isZoomingIn, setIsZoomingIn] = useState(false)
   const [isZoomingOut, setIsZoomingOut] = useState(false)
   // Grid layout for slices
-  const [gridLayout, setGridLayout] = useState<1 | 2 | 3 | 4>(2) // Default to 2 slices per row (normal view)
+  const [gridLayout, setGridLayout] = useState<1 | 2 | 3 | 4>(3) // Default to 3 slices per row (small view)
 
   // Audio context
   const audioContext = useRef<AudioContext | null>(null)
+
+  const totalDurationLabel = audioBuffer ? formatTime(audioBuffer.duration) : "0:00"
+  const currentTimeLabel = formatTime(currentPlaybackTime)
+  const sampleRateLabel = audioBuffer ? `${(audioBuffer.sampleRate / 1000).toFixed(1)} kHz` : "--"
   const sourceNode = useRef<AudioBufferSourceNode | null>(null)
   const gainNode = useRef<GainNode | null>(null)
   const playbackStartTime = useRef<number>(0)
@@ -2125,290 +2132,284 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
           </div>
         </div>
       ) : (
-        // Full application with audio loaded - using the new compact layout
-        <div className="container mx-auto py-2 md:py-4 w-full">
-          {/* Kit name heading - replace the existing h2 with this interactive version */}
-          <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-200 w-full px-2 sm:px-0">
-            {isEditingKitName ? (
-              <input
-                type="text"
-                value={kitName}
-                onChange={handleKitNameChange}
-                onBlur={handleKitNameBlur}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setIsEditingKitName(false)
-                    setIsTyping(false)
-                  }
-                }}
-                className="text-xl sm:text-2xl font-bold bg-transparent border-b-2 border-primary outline-none w-full"
-                autoFocus
-                placeholder="Untitled Drum Kit"
-              />
-            ) : (
-              <h2
-                className="text-xl sm:text-2xl font-bold cursor-pointer hover:text-primary transition-colors flex items-center gap-2"
-                onClick={() => setIsEditingKitName(true)}
-              >
-                {kitName || "Untitled Drum Kit"}
-                {!isTyping && !hasCustomKitName && (
-                  <span className="text-muted-foreground">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="sm:w-[18px] sm:h-[18px]"
+        <div className="w-full max-w-6xl mx-auto space-y-10 px-4 py-6 lg:px-0">
+          <div className="flex justify-center">
+            <section className="w-full max-w-4xl rounded-[40px] border border-white/10 bg-gradient-to-br from-[#050506] via-[#0a070f] to-[#040307] p-6 text-white shadow-[0_35px_120px_rgba(0,0,0,0.55)] space-y-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/50">Kit Session</p>
+                  {isEditingKitName ? (
+                    <input
+                      type="text"
+                      value={kitName}
+                      onChange={handleKitNameChange}
+                      onBlur={handleKitNameBlur}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          setIsEditingKitName(false)
+                          setIsTyping(false)
+                        }
+                      }}
+                      className="text-2xl font-bold bg-transparent border-b border-amber-300/60 outline-none pb-1"
+                      autoFocus
+                      placeholder="Untitled Drum Kit"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-left text-2xl font-bold flex items-center gap-2 hover:text-amber-200 transition"
+                      onClick={() => setIsEditingKitName(true)}
                     >
-                      <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                      <path d="m15 5 4 4" />
-                    </svg>
-                  </span>
-                )}
-              </h2>
-            )}
-          </div>
-
-          {/* Waveform */}
-          <div
-            className={`mb-4 overflow-hidden ${
-              isModern
-                ? "h-[220px] rounded-[32px] border border-white/10 bg-black/20 p-6"
-                : "h-[120px] sm:h-[160px] rounded-md bg-muted"
-            }`}
-          >
-            {audioBuffer &&
-              (isModern ? (
-                <CircularWaveform
-                  audioBuffer={audioBuffer}
-                  slices={slices}
-                  potentialSlices={potentialSlices}
-                  currentTime={currentPlaybackTime}
-                  selectedSliceId={selectedSliceId}
-                  onSliceClick={handleSliceClick}
-                  onMarkerDrag={handleMarkerDrag}
-                  onWaveformClick={handleWaveformClick}
-                  onWaveformMouseUp={handleWaveformMouseUp}
-                />
-              ) : (
-                <Waveform
-                  audioBuffer={audioBuffer}
-                  slices={slices}
-                  potentialSlices={potentialSlices}
-                  currentTime={currentPlaybackTime}
-                  zoomLevel={zoomLevel}
-                  scrollPosition={scrollPosition}
-                  onScrollChange={setScrollPosition}
-                  onZoomChange={(newZoom) => setZoomLevel(newZoom)}
-                  onSliceClick={handleSliceClick}
-                  onMarkerDrag={handleMarkerDrag}
-                  onWaveformClick={handleWaveformClick}
-                  onWaveformMouseUp={handleWaveformMouseUp}
-                  isCreatingSlice={isCreatingSlice}
-                  newSliceStart={newSliceStart}
-                />
-              ))}
-          </div>
-
-          {/* Controls bar - reorganized without kit name input */}
-          <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 mb-6">
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-start mb-2 sm:mb-0">
-              {/* Playback controls */}
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-full h-10 w-10 bg-transparent"
-                onClick={() => {
-                  const newZoom = Math.max(1, zoomLevel - 1)
-                  setZoomLevel(newZoom)
-                }}
-                onMouseDown={() => setIsZoomingOut(true)}
-                onMouseUp={() => setIsZoomingOut(false)}
-                onMouseLeave={() => setIsZoomingOut(false)}
-              >
-                <Minus className="h-4 w-4" />
-              </Button>
-
-              <Button
-                variant={isPlaying ? "secondary" : "default"}
-                size="icon"
-                className="rounded-full h-12 w-12 sm:h-10 sm:w-10"
-                onClick={togglePlayback}
-              >
-                {isPlaying ? (
-                  <Pause className="h-5 w-5 sm:h-4 sm:w-4" />
-                ) : (
-                  <Play className="h-5 w-5 sm:h-4 sm:w-4 ml-0.5" />
-                )}
-              </Button>
-
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-full h-10 w-10 bg-transparent"
-                onClick={stopPlayback}
-              >
-                <Square className="h-4 w-4" />
-              </Button>
-
-              <Button
-                variant="outline"
-                size="icon"
-                className="rounded-full h-10 w-10 bg-transparent"
-                onClick={() => {
-                  const newZoom = Math.min(50, zoomLevel + 1)
-                  setZoomLevel(newZoom)
-                }}
-                onMouseDown={() => setIsZoomingIn(true)}
-                onMouseUp={() => setIsZoomingIn(false)}
-                onMouseLeave={() => setIsZoomingIn(false)}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="flex-1 hidden sm:block"></div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-center sm:justify-end">
-              <Button onClick={detectSlices} disabled={isProcessing} className="h-10">
-                Detect & Slice
-              </Button>
-
-              <Button
-                onClick={exportSlices}
-                disabled={isProcessing || slices.length === 0}
-                variant="outline"
-                className="h-10 bg-transparent"
-              >
-                Export Selected
-              </Button>
-
-              {/* Settings dropdown with scrollable content */}
-              <div className="relative">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="icon" className="h-10 w-10 bg-transparent">
-                      <Settings className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-[calc(100vw-2rem)] sm:w-80 max-h-[70vh] overflow-y-auto">
-                    <DropdownMenuLabel>Kit Settings</DropdownMenuLabel>
-                    <DropdownMenuItem className="p-2 h-auto focus:bg-transparent">
-                      <div className="w-full space-y-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="kit-name">Kit Name</Label>
-                          <Input
-                            id="kit-name"
-                            value={kitName}
-                            onChange={(e) => setKitName(e.target.value)}
-                            placeholder="Untitled Drum Kit"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="sample-prefix">Sample Prefix</Label>
-                          <Input id="sample-prefix" value={kitPrefix} onChange={(e) => setKitPrefix(e.target.value)} />
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Detection Settings</DropdownMenuLabel>
-                    <DropdownMenuItem className="p-2 h-auto focus:bg-transparent">
-                      <div className="w-full space-y-4">
-                        <div className="space-y-2">
-                          <Label>Sensitivity: {sensitivity.toFixed(2)}</Label>
-                          <Slider
-                            value={[sensitivity]}
-                            min={0.01}
-                            max={0.5}
-                            step={0.01}
-                            onValueChange={(value) => setSensitivity(value[0])}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Min Distance: {minDistance.toFixed(2)}s</Label>
-                          <Slider
-                            value={[minDistance]}
-                            min={0.01}
-                            max={0.5}
-                            step={0.01}
-                            onValueChange={(value) => setMinDistance(value[0])}
-                          />
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel>Export Settings</DropdownMenuLabel>
-                    <DropdownMenuItem className="p-2 h-auto focus:bg-transparent">
-                      <div className="w-full space-y-4">
-                        <div className="grid grid-cols-2 gap-2">
-                          <Button
-                            variant={exportFormat === "wav" ? "default" : "outline"}
-                            onClick={() => setExportFormat("wav")}
-                            size="sm"
-                          >
-                            WAV
-                          </Button>
-                          <Button
-                            variant={exportFormat === "mp3" ? "default" : "outline"}
-                            onClick={() => setExportFormat("mp3")}
-                            size="sm"
-                          >
-                            MP3
-                          </Button>
-                        </div>
-
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="include-midi"
-                            checked={includeMidi}
-                            onCheckedChange={(checked) => setIncludeMidi(!!checked)}
-                          />
-                          <Label htmlFor="include-midi">Include MIDI</Label>
-                        </div>
-
-                        <div className="flex items-center space-x-2">
-                          <Checkbox
-                            id="include-metadata"
-                            checked={includeMetadata}
-                            onCheckedChange={(checked) => setIncludeMetadata(!!checked)}
-                          />
-                          <Label htmlFor="include-metadata">Include Metadata</Label>
-                        </div>
-                      </div>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      {kitName || "Untitled Drum Kit"}
+                      {!isTyping && !hasCustomKitName && (
+                        <span className="text-white/40">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                            <path d="m15 5 4 4" />
+                          </svg>
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </div>
+                <div className="grid w-full gap-3 sm:grid-cols-3">
+                  {[
+                    { label: "Length", value: totalDurationLabel },
+                    { label: "Slices", value: slices.length.toString().padStart(2, "0") },
+                    { label: "Sample Rate", value: sampleRateLabel },
+                  ].map((stat) => (
+                    <div key={stat.label} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-left">
+                      <p className="text-xs uppercase tracking-[0.35em] text-white/50">{stat.label}</p>
+                      <p className="mt-1 text-lg font-semibold">{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setAudioBuffer(null)
-                  setAudioFile(null)
-                  setOriginalAudioBuffer(null)
-                  setSlices([])
-                  setPotentialSlices([])
-                }}
-              >
-                Load Different Audio
-              </Button>
-            </div>
+              <div className="rounded-[32px] border border-amber-200/15 bg-gradient-to-b from-[#0f0a15] to-[#050305] p-4">
+                <div className="flex items-center justify-between text-xs uppercase tracking-[0.35em] text-white/40">
+                  <span>Waveform View</span>
+                  <span>{`Zoom ${zoomLevel.toString().padStart(2, "0")}x`}</span>
+                </div>
+                <div className={`mt-4 h-[220px] overflow-visible rounded-[24px] border border-white/5 ${isModern ? "p-0" : "bg-black/40"}`}>
+                  {audioBuffer &&
+                    (isModern ? (
+                      <CircularWaveform
+                        audioBuffer={audioBuffer}
+                        slices={slices}
+                        potentialSlices={potentialSlices}
+                        currentTime={currentPlaybackTime}
+                        selectedSliceId={selectedSliceId}
+                        onSliceClick={handleSliceClick}
+                        onMarkerDrag={handleMarkerDrag}
+                        onWaveformClick={handleWaveformClick}
+                        onWaveformMouseUp={handleWaveformMouseUp}
+                      />
+                    ) : (
+                      <Waveform
+                        audioBuffer={audioBuffer}
+                        slices={slices}
+                        potentialSlices={potentialSlices}
+                        currentTime={currentPlaybackTime}
+                        zoomLevel={zoomLevel}
+                        scrollPosition={scrollPosition}
+                        onScrollChange={setScrollPosition}
+                        onZoomChange={(newZoom) => setZoomLevel(newZoom)}
+                        onSliceClick={handleSliceClick}
+                        onMarkerDrag={handleMarkerDrag}
+                        onWaveformClick={handleWaveformClick}
+                        onWaveformMouseUp={handleWaveformMouseUp}
+                        isCreatingSlice={isCreatingSlice}
+                        newSliceStart={newSliceStart}
+                      />
+                    ))}
+                </div>
+                <div className="mt-4 flex items-center justify-between text-xs text-white/60">
+                  <span>Drag to pan · Scroll to zoom · Double click to slice</span>
+                  <span>ScrollPos {scrollPosition.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="rounded-[32px] border border-white/10 bg-black/35 p-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 rounded-full border border-white/15 text-white hover:border-amber-200/60"
+                    onClick={() => {
+                      const newZoom = Math.max(1, zoomLevel - 1)
+                      setZoomLevel(newZoom)
+                    }}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-14 w-14 rounded-full text-black ${isPlaying ? "bg-white/80" : "bg-gradient-to-r from-[#f5d97a] to-[#f0b942]"}`}
+                    onClick={togglePlayback}
+                  >
+                    {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5 ml-0.5" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 rounded-full border border-white/15 text-white hover:border-amber-200/60"
+                    onClick={stopPlayback}
+                  >
+                    <Square className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 rounded-full border border-white/15 text-white hover:border-amber-200/60"
+                    onClick={() => {
+                      const newZoom = Math.min(50, zoomLevel + 1)
+                      setZoomLevel(newZoom)
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex flex-col text-right text-white/70">
+                  <p className="text-xs uppercase tracking-[0.35em] text-white/40">Playhead</p>
+                  <p className="text-2xl font-mono text-white">{currentTimeLabel}</p>
+                  <span className="text-xs text-white/60">of {totalDurationLabel}</span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-10 rounded-full border border-white/15 text-white/70 hover:text-white"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Load Audio
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon" className="h-11 w-11 rounded-full border-white/20 text-white/70 hover:text-white">
+                        <Settings className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-80 max-h-[70vh] overflow-y-auto bg-[#07050d] text-white">
+                      <DropdownMenuLabel>Kit Settings</DropdownMenuLabel>
+                      <DropdownMenuItem className="p-3 focus:bg-white/5">
+                        <div className="space-y-3 w-full">
+                          <div className="space-y-2">
+                            <Label htmlFor="dropdown-kit-name">Kit Name</Label>
+                            <Input
+                              id="dropdown-kit-name"
+                              value={kitName}
+                              onChange={(e) => setKitName(e.target.value)}
+                              placeholder="Untitled Drum Kit"
+                              className="border-white/20 bg-black/30 text-white"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="dropdown-prefix">Sample Prefix</Label>
+                            <Input
+                              id="dropdown-prefix"
+                              value={kitPrefix}
+                              onChange={(e) => setKitPrefix(e.target.value)}
+                              className="border-white/20 bg-black/30 text-white"
+                            />
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Detection Engine</DropdownMenuLabel>
+                      <DropdownMenuItem className="p-3 focus:bg-white/5">
+                        <div className="space-y-4 w-full">
+                          <div>
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span>Sensitivity</span>
+                              <span>{sensitivity.toFixed(2)}</span>
+                            </div>
+                            <Slider value={[sensitivity]} min={0.01} max={0.5} step={0.01} onValueChange={(value) => setSensitivity(value[0])} />
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between text-xs text-white/60">
+                              <span>Min Distance (s)</span>
+                              <span>{minDistance.toFixed(2)}</span>
+                            </div>
+                            <Slider value={[minDistance]} min={0.01} max={0.5} step={0.01} onValueChange={(value) => setMinDistance(value[0])} />
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Output & Session</DropdownMenuLabel>
+                      <DropdownMenuItem className="p-3 focus:bg-white/5">
+                        <div className="space-y-4 w-full">
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              variant={exportFormat === "wav" ? "default" : "outline"}
+                              className={`rounded-2xl ${exportFormat === "wav" ? "bg-amber-300 text-black" : "border-white/20 text-white/80"}`}
+                              onClick={() => setExportFormat("wav")}
+                            >
+                              WAV
+                            </Button>
+                            <Button
+                              variant={exportFormat === "mp3" ? "default" : "outline"}
+                              className={`rounded-2xl ${exportFormat === "mp3" ? "bg-amber-300 text-black" : "border-white/20 text-white/80"}`}
+                              onClick={() => setExportFormat("mp3")}
+                            >
+                              MP3
+                            </Button>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex items-center space-x-2">
+                              <Checkbox id="include-midi-dropdown" checked={includeMidi} onCheckedChange={(checked) => setIncludeMidi(!!checked)} />
+                              <Label htmlFor="include-midi-dropdown" className="text-white/70">
+                                Include MIDI map
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <Checkbox
+                                id="include-metadata-dropdown"
+                                checked={includeMetadata}
+                                onCheckedChange={(checked) => setIncludeMetadata(!!checked)}
+                              />
+                              <Label htmlFor="include-metadata-dropdown" className="text-white/70">
+                                Include metadata
+                              </Label>
+                            </div>
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    onClick={detectSlices}
+                    disabled={isProcessing}
+                    className="h-11 rounded-full bg-gradient-to-r from-[#f5d97a] via-[#f0b942] to-[#f0a53b] px-6 text-black hover:brightness-110"
+                  >
+                    Detect & Slice
+                  </Button>
+                  <Button
+                    onClick={exportSlices}
+                    disabled={isProcessing || slices.length === 0}
+                    variant="outline"
+                    className="h-11 rounded-full border border-white/20 bg-transparent px-6 text-white/80 hover:text-white"
+                  >
+                    Export Selected
+                  </Button>
+                </div>
+              </div>
+            </section>
+
+            <aside className="space-y-4" />
           </div>
 
           {/* Extracted slices section - only shown when slices exist */}
           {slices.length > 0 && (
-            <div className="space-y-4">
+            <div className="space-y-4 mt-4">
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-bold">Detected Slices ({slices.length})</h2>
+                  <h2 className="font-display text-2xl text-white">Detected Slices ({slices.length})</h2>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="sm" className="flex items-center gap-1 bg-transparent">
@@ -2472,219 +2473,265 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                         : gridLayout === 3
                           ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"
                           : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-                  } gap-3`}
+                  } gap-4`}
                 >
-                  {slices.map((slice) => (
-                    <div
-                      key={slice.id}
-                      className={`bg-white p-3 rounded-md border ${
-                        gridLayout === 1 ? "p-4" : gridLayout === 4 ? "p-2" : "p-3"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <Input
-                          value={slice.name}
-                          onChange={(e) => updateSlice(slice.id, { name: e.target.value })}
-                          className="flex-1 mr-2 text-sm h-9"
-                          size={12}
-                        />
+                  {slices.map((slice) => {
+                    const sliceDuration = slice.end - slice.start
+                    const sliceDurationLabel = `${sliceDuration.toFixed(2)}s`
+                    const sliceStartLabel = formatTime(slice.start)
+                    const sliceEndLabel = formatTime(slice.end)
+                    const sliceWindowPercent = audioBuffer
+                      ? Math.min(100, Math.max(4, (sliceDuration / audioBuffer.duration) * 100))
+                      : 100
+                    const isActiveSlice = selectedSliceId === slice.id
 
-                        <select
-                          value={slice.type}
-                          onChange={(e) => updateSlice(slice.id, { type: e.target.value })}
-                          className="border rounded-md p-1 text-sm h-9"
-                        >
-                          <option value="kick">Kick</option>
-                          <option value="snare">Snare</option>
-                          <option value="hat">Hat</option>
-                          <option value="perc">Perc</option>
-                          <option value="cymb">Cymb</option>
-                        </select>
-
-                        <Checkbox
-                          checked={slice.selected}
-                          onCheckedChange={(checked) => updateSlice(slice.id, { selected: !!checked })}
-                          className="h-5 w-5 mx-1"
-                        />
-
-                        <div className="flex items-center space-x-1">
-                          <Button variant="ghost" size="sm" className="h-9 w-9" onClick={() => playSlice(slice.id)}>
-                            <Play className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-500 hover:text-red-600 h-9 w-9"
-                            onClick={() => removeSlice(slice.id)}
-                          >
-                            <Trash className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-
+                    return (
                       <div
-                        className={`${
-                          gridLayout === 1 ? "h-32" : gridLayout === 4 ? "h-16" : "h-20"
-                        } bg-muted rounded-md mb-2 relative`}
-                      >
-                        {audioBuffer && (
-                          <SliceWaveform
-                            audioBuffer={audioBuffer}
-                            start={slice.start}
-                            end={slice.end}
-                            fadeIn={slice.fadeIn}
-                            fadeOut={slice.fadeOut}
-                            fadeInShape={slice.fadeInShape || 0}
-                            fadeOutShape={slice.fadeOutShape || 0}
-                            type={slice.type}
-                            zoomLevel={sliceZoomLevels[slice.id] || 1}
-                            scrollPosition={sliceScrollPositions[slice.id] || 0.5}
-                            onStartChange={(newStart) => updateSlice(slice.id, { start: newStart })}
-                            onEndChange={(newEnd) => updateSlice(slice.id, { end: newEnd })}
-                            onZoomChange={(newZoom) => handleSliceZoomChange(slice.id, newZoom)}
-                            onScrollChange={(newScroll) => handleSliceScrollChange(slice.id, newScroll)}
-                            onFadeInShapeChange={(newShape) => handleFadeInShapeChange(slice.id, newShape)}
-                            onFadeOutShapeChange={(newShape) => handleFadeOutShapeChange(slice.id, newShape)}
-                          />
+                        key={slice.id}
+                        className={cn(
+                          "rounded-[28px] border border-white/10 bg-gradient-to-br from-[#050407] via-[#090611] to-[#040307] text-white shadow-[0_18px_60px_rgba(3,3,7,0.55)] transition hover:border-white/20 focus-within:border-amber-200/60",
+                          gridLayout === 1 ? "p-6" : gridLayout === 4 ? "p-3" : "p-4",
+                          isActiveSlice && "border-amber-300/70 shadow-[0_0_25px_rgba(245,217,122,0.45)]",
                         )}
+                      >
+                        <div className="flex flex-wrap items-center gap-3">
+                          <Input
+                            value={slice.name}
+                            onChange={(e) => updateSlice(slice.id, { name: e.target.value })}
+                            className="flex-1 rounded-full border-white/15 bg-black/30 text-sm text-white placeholder:text-white/40 focus-visible:ring-amber-200/30"
+                            size={12}
+                          />
 
-                        <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
-                          <div className="flex items-center space-x-1">
+                          <select
+                            value={slice.type}
+                            onChange={(e) => updateSlice(slice.id, { type: e.target.value })}
+                            className="rounded-full border border-white/15 bg-black/30 px-4 py-2 text-xs uppercase tracking-[0.35em] text-white/70 focus:outline-none focus:ring-amber-200/30"
+                          >
+                            <option value="kick">Kick</option>
+                            <option value="snare">Snare</option>
+                            <option value="hat">Hat</option>
+                            <option value="perc">Perc</option>
+                            <option value="cymb">Cymbal</option>
+                          </select>
+
+                          <label className="flex items-center gap-2 rounded-full border border-white/15 bg-black/20 px-3 py-1 text-[10px] uppercase tracking-[0.35em] text-white/60">
+                            <Checkbox
+                              checked={slice.selected}
+                              onCheckedChange={(checked) => updateSlice(slice.id, { selected: !!checked })}
+                              className="h-4 w-4 border-white/40 data-[state=checked]:border-amber-300 data-[state=checked]:bg-amber-300 data-[state=checked]:text-black"
+                            />
+                            Keep
+                          </label>
+                        </div>
+
+                        <div className="mt-3 rounded-2xl border border-white/10 bg-gradient-to-r from-[#13111c] via-[#0c0b14] to-[#07050c] px-4 py-3">
+                          <div className="flex flex-wrap items-center gap-4">
                             <Button
+                              type="button"
                               variant="ghost"
                               size="icon"
-                              className={`h-5 w-5 ${
-                                (sliceScrollPositions[slice.id] || 0.5) <= 0.05
-                                  ? "bg-black/10 cursor-not-allowed opacity-50"
-                                  : "bg-black/20 hover:bg-black/40"
-                              } rounded-full p-0`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                const currentPosition = sliceScrollPositions[slice.id] || 0.5
-                                if (currentPosition > 0.05) {
-                                  handleSliceScrollChange(slice.id, Math.max(0, currentPosition - 0.1))
-                                }
-                              }}
-                              disabled={(sliceScrollPositions[slice.id] || 0.5) <= 0.05}
+                              className="h-12 w-12 rounded-full border border-white/20 bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black shadow-[0_8px_20px_rgba(245,217,122,0.45)] hover:brightness-110"
+                              onClick={() => playSlice(slice.id)}
                             >
-                              <ChevronLeft className="h-3 w-3 text-white" />
+                              <Play className="h-5 w-5" />
                             </Button>
+
+                            <div className="min-w-[150px] flex-1">
+                              <p className="text-xs uppercase tracking-[0.35em] text-white/50">Window</p>
+                              <p className="font-mono text-lg text-white">{sliceDurationLabel}</p>
+                              <p className="text-[11px] text-white/60">
+                                {sliceStartLabel} – {sliceEndLabel}
+                              </p>
+                            </div>
+
+                            <div className="min-w-[140px] flex-1">
+                              <div className="h-1.5 w-full rounded-full bg-white/10">
+                                <span
+                                  className="block h-full rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942]"
+                                  style={{ width: `${sliceWindowPercent}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-[10px] uppercase tracking-[0.35em] text-white/45">Clip coverage</p>
+                            </div>
+
                             <Button
+                              type="button"
                               variant="ghost"
                               size="icon"
-                              className={`h-5 w-5 ${
-                                (sliceScrollPositions[slice.id] || 0.5) >= 0.95
-                                  ? "bg-black/10 cursor-not-allowed opacity-50"
-                                  : "bg-black/20 hover:bg-black/40"
-                              } rounded-full p-0`}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                const currentPosition = sliceScrollPositions[slice.id] || 0.5
-                                if (currentPosition < 0.95) {
-                                  handleSliceScrollChange(slice.id, Math.min(1, currentPosition + 0.1))
-                                }
-                              }}
-                              disabled={(sliceScrollPositions[slice.id] || 0.5) >= 0.95}
+                              className="h-10 w-10 rounded-full border border-white/15 bg-white/5 text-white/80 hover:border-red-300/60 hover:text-red-200"
+                              onClick={() => removeSlice(slice.id)}
                             >
-                              <ChevronRight className="h-3 w-3 text-white" />
+                              <Trash className="h-4 w-4" />
                             </Button>
                           </div>
+                        </div>
 
-                          <span>{((slice.end - slice.start) * 1000).toFixed(0)}ms</span>
+                        <div
+                          className={cn(
+                            "mt-4 rounded-2xl border border-white/5 bg-black/30 p-3",
+                            gridLayout === 1 ? "h-36" : gridLayout === 4 ? "h-20" : "h-28",
+                          )}
+                        >
+                          {audioBuffer && (
+                            <SliceWaveform
+                              audioBuffer={audioBuffer}
+                              start={slice.start}
+                              end={slice.end}
+                              fadeIn={slice.fadeIn}
+                              fadeOut={slice.fadeOut}
+                              fadeInShape={slice.fadeInShape || 0}
+                              fadeOutShape={slice.fadeOutShape || 0}
+                              type={slice.type}
+                              zoomLevel={sliceZoomLevels[slice.id] || 1}
+                              scrollPosition={sliceScrollPositions[slice.id] || 0.5}
+                              onStartChange={(newStart) => updateSlice(slice.id, { start: newStart })}
+                              onEndChange={(newEnd) => updateSlice(slice.id, { end: newEnd })}
+                              onZoomChange={(newZoom) => handleSliceZoomChange(slice.id, newZoom)}
+                              onScrollChange={(newScroll) => handleSliceScrollChange(slice.id, newScroll)}
+                              onFadeInShapeChange={(newShape) => handleFadeInShapeChange(slice.id, newShape)}
+                              onFadeOutShapeChange={(newShape) => handleFadeOutShapeChange(slice.id, newShape)}
+                            />
+                          )}
 
-                          <div className="flex items-center space-x-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 bg-black/20 hover:bg-black/40 rounded-full p-0"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleSliceZoomChange(slice.id, Math.max(1, (sliceZoomLevels[slice.id] || 1) - 0.5))
+                          <div className="mt-3 flex items-center justify-between text-[11px] text-white/60">
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={cn(
+                                  "h-7 w-7 rounded-full border border-white/15 text-white",
+                                  (sliceScrollPositions[slice.id] || 0.5) <= 0.05
+                                    ? "cursor-not-allowed opacity-30"
+                                    : "bg-white/5 hover:border-amber-200/60",
+                                )}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const currentPosition = sliceScrollPositions[slice.id] || 0.5
+                                  if (currentPosition > 0.05) {
+                                    handleSliceScrollChange(slice.id, Math.max(0, currentPosition - 0.1))
+                                  }
+                                }}
+                                disabled={(sliceScrollPositions[slice.id] || 0.5) <= 0.05}
+                              >
+                                <ChevronLeft className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={cn(
+                                  "h-7 w-7 rounded-full border border-white/15 text-white",
+                                  (sliceScrollPositions[slice.id] || 0.5) >= 0.95
+                                    ? "cursor-not-allowed opacity-30"
+                                    : "bg-white/5 hover:border-amber-200/60",
+                                )}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const currentPosition = sliceScrollPositions[slice.id] || 0.5
+                                  if (currentPosition < 0.95) {
+                                    handleSliceScrollChange(slice.id, Math.min(1, currentPosition + 0.1))
+                                  }
+                                }}
+                                disabled={(sliceScrollPositions[slice.id] || 0.5) >= 0.95}
+                              >
+                                <ChevronRight className="h-3 w-3" />
+                              </Button>
+                            </div>
+
+                            <span className="font-mono text-xs text-white/70">{(sliceDuration * 1000).toFixed(0)}ms</span>
+
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 rounded-full border border-white/15 bg-white/5 text-white hover:border-amber-200/60"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleSliceZoomChange(slice.id, Math.max(1, (sliceZoomLevels[slice.id] || 1) - 0.5))
+                                }}
+                              >
+                                <ZoomOut className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 rounded-full border border-white/15 bg-white/5 text-white hover:border-amber-200/60"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleSliceZoomChange(slice.id, Math.min(20, (sliceZoomLevels[slice.id] || 1) + 0.5))
+                                }}
+                              >
+                                <ZoomIn className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-between px-1 text-white/70">
+                          <div className="flex flex-col items-center">
+                            <Knob
+                              value={slice.fadeIn}
+                              min={0}
+                              max={100}
+                              step={1}
+                              size={18}
+                              onChange={(value) => updateSlice(slice.id, { fadeIn: value })}
+                              activeColor="#3b82f6"
+                            />
+                            <span className="mt-1 text-[10px]">{slice.fadeIn}ms</span>
+                          </div>
+
+                          <div className="flex flex-col items-center">
+                            <Knob
+                              value={Math.round((slice.start - (audioBuffer ? 0 : 0)) * 100)}
+                              min={0}
+                              max={100}
+                              step={1}
+                              size={18}
+                              onChange={(value) => {
+                                const newStart = value / 100 + (audioBuffer ? 0 : 0)
+                                if (newStart < slice.end - 0.01) {
+                                  updateSlice(slice.id, { start: newStart })
+                                }
                               }}
-                            >
-                              <ZoomOut className="h-3 w-3 text-white" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-5 w-5 bg-black/20 hover:bg-black/40 rounded-full p-0"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleSliceZoomChange(slice.id, Math.min(20, (sliceZoomLevels[slice.id] || 1) + 0.5))
+                              activeColor="#3b82f6"
+                            />
+                            <span className="mt-1 text-[10px]">Start</span>
+                          </div>
+
+                          <div className="flex flex-col items-center">
+                            <Knob
+                              value={Math.round((slice.end - (audioBuffer ? 0 : 0)) * 100)}
+                              min={0}
+                              max={audioBuffer ? Math.round(audioBuffer.duration * 100) : 100}
+                              step={1}
+                              size={18}
+                              onChange={(value) => {
+                                const newEnd = value / 100 + (audioBuffer ? 0 : 0)
+                                if (newEnd > slice.start + 0.01) {
+                                  updateSlice(slice.id, { end: newEnd })
+                                }
                               }}
-                            >
-                              <ZoomIn className="h-3 w-3 text-white" />
-                            </Button>
+                              activeColor="#ef4444"
+                            />
+                            <span className="mt-1 text-[10px]">End</span>
+                          </div>
+
+                          <div className="flex flex-col items-center">
+                            <Knob
+                              value={slice.fadeOut}
+                              min={0}
+                              max={500}
+                              step={5}
+                              size={18}
+                              onChange={(value) => updateSlice(slice.id, { fadeOut: value })}
+                              activeColor="#ef4444"
+                            />
+                            <span className="mt-1 text-[10px]">{slice.fadeOut}ms</span>
                           </div>
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-between px-1 mt-1">
-                        {/* All knobs in a single row with labels underneath - reordered */}
-                        <div className="flex flex-col items-center">
-                          <Knob
-                            value={slice.fadeIn}
-                            min={0}
-                            max={100}
-                            step={1}
-                            size={18}
-                            onChange={(value) => updateSlice(slice.id, { fadeIn: value })}
-                            activeColor="#3b82f6"
-                          />
-                          <span className="text-[10px] mt-1">{slice.fadeIn}ms</span>
-                        </div>
-
-                        <div className="flex flex-col items-center">
-                          <Knob
-                            value={Math.round((slice.start - (audioBuffer ? 0 : 0)) * 100)}
-                            min={0}
-                            max={100}
-                            step={1}
-                            size={18}
-                            onChange={(value) => {
-                              const newStart = value / 100 + (audioBuffer ? 0 : 0)
-                              if (newStart < slice.end - 0.01) {
-                                updateSlice(slice.id, { start: newStart })
-                              }
-                            }}
-                            activeColor="#3b82f6"
-                          />
-                          <span className="text-[10px] mt-1">Start</span>
-                        </div>
-
-                        <div className="flex flex-col items-center">
-                          <Knob
-                            value={Math.round((slice.end - (audioBuffer ? 0 : 0)) * 100)}
-                            min={0}
-                            max={audioBuffer ? Math.round(audioBuffer.duration * 100) : 100}
-                            step={1}
-                            size={18}
-                            onChange={(value) => {
-                              const newEnd = value / 100 + (audioBuffer ? 0 : 0)
-                              if (newEnd > slice.start + 0.01) {
-                                updateSlice(slice.id, { end: newEnd })
-                              }
-                            }}
-                            activeColor="#ef4444"
-                          />
-                          <span className="text-[10px] mt-1">End</span>
-                        </div>
-
-                        <div className="flex flex-col items-center">
-                          <Knob
-                            value={slice.fadeOut}
-                            min={0}
-                            max={500}
-                            step={5}
-                            size={18}
-                            onChange={(value) => updateSlice(slice.id, { fadeOut: value })}
-                            activeColor="#ef4444"
-                          />
-                          <span className="text-[10px] mt-1">{slice.fadeOut}ms</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </div>

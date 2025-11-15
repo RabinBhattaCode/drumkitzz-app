@@ -74,7 +74,7 @@ export default function Navbar() {
   const navConfig = useMemo<(NavLink | NavGroup)[]>(
     () => [
       { type: "link", title: "Home", icon: Home, href: "/home" },
-      { type: "link", title: "Create", icon: Music, href: "/" },
+      { type: "link", title: "Create", icon: Music, href: "/create" },
       {
         type: "group",
         title: "My Kits",
@@ -112,6 +112,15 @@ export default function Navbar() {
     [],
   )
 
+  const protectedRoutes = useMemo(() => new Set(["/my-library", "/my-projects", "/my-kits"]), [])
+
+  const handleProtectedClick = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (!isAuthenticated && protectedRoutes.has(href)) {
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent("open-signin-overlay"))
+    }
+  }
+
   const handleLogout = () => {
     logout()
     router.push("/")
@@ -138,7 +147,7 @@ export default function Navbar() {
     const Icon = link.icon
     const active = isActive(link.href)
     return (
-      <Link key={link.href} href={link.href}>
+      <Link key={link.href} href={link.href} onClick={(event) => handleProtectedClick(event, link.href)}>
         <Button
           variant="ghost"
           className={`w-full justify-start gap-3 rounded-2xl px-4 py-3 text-sm font-medium transition ${
@@ -157,7 +166,7 @@ export default function Navbar() {
     const active = [group.href, ...group.items.map((item) => item.href)].some((href) => isActive(href))
     return (
       <div key={group.title} className="space-y-2">
-        <Link href={group.href}>
+        <Link href={group.href} onClick={(event) => handleProtectedClick(event, group.href)}>
           <Button
             variant="ghost"
             className={`w-full justify-start gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
@@ -175,6 +184,7 @@ export default function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={(event) => handleProtectedClick(event, item.href)}
                 className={`text-xs font-medium uppercase tracking-[0.2em] transition ${
                   itemActive ? "text-white" : "text-white/40 hover:text-white/80"
                 }`}
@@ -187,16 +197,6 @@ export default function Navbar() {
       </div>
     )
   }
-
-  const prototypeButton = (
-    <Link
-      href="/extractor-experiment"
-      className="mt-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-primary/70 text-background shadow-lg transition hover:bg-primary"
-    >
-      <Sparkles className="h-4 w-4" />
-      <span className="sr-only">Open prototype flow</span>
-    </Link>
-  )
 
   const DesktopNav = () => (
     <aside className="page-glow drumkitzz-sidebar hidden md:flex fixed left-0 top-0 z-50 h-screen w-52 flex-col border-r border-white/10 bg-[#050308]/85 px-4 pb-6 pt-5 backdrop-blur">
@@ -256,7 +256,6 @@ export default function Navbar() {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-        {prototypeButton}
       </div>
     </aside>
   )
@@ -311,10 +310,9 @@ export default function Navbar() {
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-72 border-white/10 bg-[#06030c] text-white">
-              <div className="flex items-center justify-between pb-4">
-                <p className="text-sm uppercase tracking-[0.35em] text-white/50">Navigate</p>
-                {prototypeButton}
-              </div>
+                <div className="flex items-center justify-between pb-4">
+                  <p className="text-sm uppercase tracking-[0.35em] text-white/50">Navigate</p>
+                </div>
               <ScrollArea className="h-[calc(100vh-6rem)]">
                 <nav className="flex flex-col gap-4">
                   {navConfig.map((section) => (section.type === "link" ? renderPrimaryLink(section) : renderGroup(section)))}

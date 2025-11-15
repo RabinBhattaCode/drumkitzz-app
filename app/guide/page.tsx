@@ -1,6 +1,6 @@
 "use client"
 
-import { Card, CardContent } from "@/components/ui/card"
+import { PageHero } from "@/components/page-hero"
 
 const steps = [
   { title: "Capture", description: "Upload stems, drag audio, or record directly into DrumKitzz." },
@@ -10,24 +10,19 @@ const steps = [
 
 export default function GuidePage() {
   return (
-    <div className="px-4 py-10 md:px-12 lg:px-16">
-      <div className="space-y-6">
-        <div>
-          <p className="text-xs uppercase tracking-[0.4em] text-white/50">Workflow</p>
-          <h1 className="font-display text-4xl text-white">Guide</h1>
-          <p className="text-white/70">A quick playbook for turning raw audio into sellable kits.</p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {steps.map((step, index) => (
-            <Card key={step.title} className="border-white/10 bg-white/5 text-white">
-              <CardContent className="space-y-2 p-4">
-                <p className="text-xs uppercase tracking-[0.3em] text-white/60">Step {index + 1}</p>
-                <p className="text-lg font-semibold">{step.title}</p>
-                <p className="text-sm text-white/60">{step.description}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+    <div className="w-full max-w-5xl space-y-8 px-4 py-10 lg:px-0">
+      <PageHero eyebrow="Workflow" title="Guide" description="A quick playbook for turning raw audio into sellable kits." />
+      <div className="grid gap-4 md:grid-cols-3">
+        {steps.map((step, index) => (
+          <div
+            key={step.title}
+            className="rounded-[28px] border border-white/10 bg-black/30 p-5 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)]"
+          >
+            <p className="text-xs uppercase tracking-[0.35em] text-white/50">Step {index + 1}</p>
+            <p className="text-lg font-semibold">{step.title}</p>
+            <p className="text-sm text-white/70">{step.description}</p>
+          </div>
+        ))}
       </div>
     </div>
   )

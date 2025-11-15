@@ -6,12 +6,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "@/lib/auth-context"
-import { useToast } from "@/components/ui/use-toast"
+import { useToast } from "@/hooks/use-toast"
 import { Bell, ShoppingCart, Trash2 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardContent } from "@/components/ui/card"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 
 const mockCartItems = [
   { id: "1", name: "LA Trap Essentials", price: 24.99, creator: "beatmaker99" },
@@ -27,6 +27,7 @@ export function SignInOverlay() {
   const { login, isAuthenticated } = useAuth()
   const { toast } = useToast()
   const pathname = usePathname()
+  const router = useRouter()
   const [open, setOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [email, setEmail] = useState("")
@@ -42,6 +43,12 @@ export function SignInOverlay() {
     handleScroll()
     window.addEventListener("scroll", handleScroll)
     return () => window.removeEventListener("scroll", handleScroll)
+  }, [])
+
+  useEffect(() => {
+    const handleOpen = () => setOpen(true)
+    window.addEventListener("open-signin-overlay", handleOpen as EventListener)
+    return () => window.removeEventListener("open-signin-overlay", handleOpen as EventListener)
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -150,7 +157,17 @@ export function SignInOverlay() {
                 {loading ? "Signing in..." : "Continue with Email"}
               </Button>
               <div className="text-center text-sm text-white/60">
-                Don't have an account yet? <span className="text-white">Sign Up</span>
+                Don't have an account yet?{" "}
+                <button
+                  type="button"
+                  className="font-semibold text-white underline-offset-4 hover:underline"
+                  onClick={() => {
+                    setOpen(false)
+                    router.push("/home?signup=true")
+                  }}
+                >
+                  Sign Up
+                </button>
               </div>
             </form>
           </DialogContent>
