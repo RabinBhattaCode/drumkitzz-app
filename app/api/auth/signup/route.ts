@@ -3,15 +3,17 @@ import { createClient } from "@supabase/supabase-js"
 
 import type { Database } from "@/lib/database.types"
 
-const supabaseAdmin = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-)
+export const runtime = "nodejs"
 
 export async function POST(request: Request) {
-  if (!supabaseAdmin) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !supabaseServiceKey) {
+    console.error("Missing Supabase env vars", { supabaseUrl: !!supabaseUrl, supabaseServiceKey: !!supabaseServiceKey })
     return NextResponse.json({ error: "Supabase admin client not configured" }, { status: 500 })
   }
+
+  const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceKey)
 
   const { email, password, firstName, lastName, username } = (await request.json()) as {
     email?: string

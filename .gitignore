@@ -22,6 +22,7 @@ yarn-error.log*
 # deployment
 .vercel
 .netlify
+.netlify-home/
 
 # typescript
 *.tsbuildinfo

@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import Replicate from "replicate"
 
+export const runtime = "nodejs"
+
 export const maxDuration = 300 // 5 minutes for audio processing
 
 interface ReplicateOutput {
