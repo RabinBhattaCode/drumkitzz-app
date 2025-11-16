@@ -2,13 +2,13 @@
 
 import type React from "react"
 
+import Link from "next/link"
 import Image from "next/image"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { useToast } from "@/hooks/use-toast"
@@ -17,6 +17,9 @@ type AuthFormsProps = {
   initialTab?: "login" | "signup"
   onSuccess?: () => void
 }
+
+const inputClasses =
+  "h-11 rounded-2xl border-white/15 bg-white/5 text-white placeholder:text-white/60 focus-visible:ring-white/40"
 
 export function AuthForms({ initialTab = "login", onSuccess }: AuthFormsProps) {
   const [activeTab, setActiveTab] = useState<"login" | "signup">(initialTab)
@@ -99,128 +102,64 @@ export function AuthForms({ initialTab = "login", onSuccess }: AuthFormsProps) {
   }
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <div className="flex flex-col items-center gap-3 pt-6">
-        <Image src="/placeholder-logo.svg" alt="DrumKitzz" width={72} height={72} priority />
-        <p className="text-sm text-muted-foreground">Join or sign in to the DrumKitzz community</p>
-      </div>
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "login" | "signup")}>
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="login">Login</TabsTrigger>
-          <TabsTrigger value="signup">Sign Up</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="login">
-          <form onSubmit={handleLogin}>
-            <CardHeader>
-              <CardTitle>Login</CardTitle>
-              <CardDescription>Sign in to your DrumKitzz account</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="your@email.com"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <PasswordInput
-                label="Password"
-                id="password"
-                value={loginPassword}
-                onChange={(value) => setLoginPassword(value)}
-              />
-            </CardContent>
-            <CardFooter className="flex flex-col">
-              <Button type="submit" className="w-full" disabled={loginLoading}>
-                {loginLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Logging in...
-                  </>
-                ) : (
-                  "Login"
-                )}
-              </Button>
-              <div className="mt-4 text-sm text-center text-muted-foreground">
-                <a href="#" className="underline hover:text-primary">
-                  Forgot password?
-                </a>
-              </div>
-            </CardFooter>
-          </form>
-        </TabsContent>
-
-        <TabsContent value="signup">
-          <form onSubmit={handleSignup}>
-            <CardHeader>
-              <CardTitle>Create an account</CardTitle>
-              <CardDescription>Join the DrumKitzz community</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName">First name</Label>
-                  <Input id="firstName" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">Last name</Label>
-                  <Input id="lastName" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="username">Producer / username</Label>
-                <Input
-                  id="username"
-                  placeholder="e.g. BeatSmith"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="signupEmail">Email</Label>
-                <Input
-                  id="signupEmail"
-                  type="email"
-                  placeholder="your@email.com"
-                  value={signupEmail}
-                  onChange={(e) => setSignupEmail(e.target.value)}
-                  required
-                />
-              </div>
-              <PasswordInput
-                label="Password"
-                id="signupPassword"
-                value={signupPassword}
-                onChange={(value) => setSignupPassword(value)}
-              />
-              <PasswordInput
-                label="Confirm password"
-                id="confirmPassword"
-                value={confirmPassword}
-                onChange={(value) => setConfirmPassword(value)}
-              />
-            </CardContent>
-            <CardFooter>
-              <Button type="submit" className="w-full" disabled={signupLoading}>
-                {signupLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating account...
-                  </>
-                ) : (
-                  "Create Account"
-                )}
-              </Button>
-            </CardFooter>
-          </form>
-        </TabsContent>
-      </Tabs>
+    <Card className="mx-auto w-full max-w-sm space-y-5 rounded-[32px] border border-white/15 bg-white/5/90 p-6 text-white shadow-[0_35px_90px_rgba(5,5,7,0.8)] backdrop-blur-3xl">
+      <CardHeader className="items-center space-y-2 text-center text-white">
+        <Image src="/images/drumkitzz-logo.png" alt="DrumKitzz" width={120} height={40} priority />
+        <CardTitle className="text-2xl">Welcome back</CardTitle>
+        <CardDescription className="text-white/70">Sign in to keep slicing on every device.</CardDescription>
+      </CardHeader>
+      <form onSubmit={handleLogin} className="space-y-4">
+        <CardContent className="space-y-3 p-0">
+          <div className="space-y-1.5">
+            <Label htmlFor="email" className="text-white/70">
+              Email
+            </Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="artist@drumkitzz.com"
+              value={loginEmail}
+              onChange={(e) => setLoginEmail(e.target.value)}
+              required
+              className={inputClasses}
+            />
+          </div>
+          <PasswordInput
+            label="Password"
+            id="password"
+            value={loginPassword}
+            onChange={(value) => setLoginPassword(value)}
+            inputClassName={inputClasses}
+          />
+        </CardContent>
+        <CardFooter className="flex flex-col gap-4 p-0">
+          <Button
+            type="submit"
+            className="h-11 w-full rounded-full bg-white text-black hover:bg-white/90"
+            disabled={loginLoading}
+          >
+            {loginLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Logging in...
+              </>
+            ) : (
+              "Login"
+            )}
+          </Button>
+          <div className="flex flex-col gap-2 text-center text-sm text-white/70">
+            <button type="button" className="underline-offset-4 hover:text-white">
+              Forgot password?
+            </button>
+            <div>
+              Need an account?{" "}
+              <Link href="/signup" className="font-semibold text-white hover:underline">
+                Sign up free
+              </Link>
+            </div>
+          </div>
+        </CardFooter>
+      </form>
     </Card>
   )
 }
@@ -230,11 +169,13 @@ function PasswordInput({
   id,
   value,
   onChange,
+  inputClassName = "",
 }: {
   label: string
   id: string
   value: string
   onChange: (value: string) => void
+  inputClassName?: string
 }) {
   const [showPassword, setShowPassword] = useState(false)
 
@@ -248,18 +189,19 @@ function PasswordInput({
           required
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          className={inputClassName}
         />
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+          className="absolute right-0 top-0 h-full px-3 py-2 text-white/70 hover:bg-transparent"
           onClick={() => setShowPassword(!showPassword)}
         >
           {showPassword ? (
-            <EyeOff className="h-4 w-4 text-muted-foreground" />
+            <EyeOff className="h-4 w-4" />
           ) : (
-            <Eye className="h-4 w-4 text-muted-foreground" />
+            <Eye className="h-4 w-4" />
           )}
           <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
         </Button>

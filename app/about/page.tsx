@@ -16,7 +16,7 @@ const stats = [
 
 export default function AboutPage() {
   return (
-    <div className="w-full max-w-5xl space-y-8 px-4 py-10 lg:px-0">
+    <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-10 lg:px-0">
       <PageHero
         eyebrow="Platform"
         title="About DrumKitzz"

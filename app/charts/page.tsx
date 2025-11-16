@@ -132,7 +132,7 @@ export default function ChartsPage() {
   }
 
   return (
-    <div className="w-full max-w-6xl space-y-8 px-4 py-10 lg:px-0">
+    <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10 lg:px-0">
       <PageHero
         eyebrow="Marketplace"
         title="Trending charts"

@@ -1,25 +1,19 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
-import { pricingTiers, currencyMeta, regionCurrencyMap } from "@/lib/pricing"
+import { PricingPlans } from "@/components/pricing/pricing-plans"
 import { useAuth } from "@/lib/auth-context"
 
 const builderScreenshot = "https://ik.imagekit.io/vv1coyjgq/Screenshot%202025-11-14%20at%2020.33.09.png?updatedAt=1763152418123"
 
-const getRegionFromLanguage = (language: string) => {
-  const region = language.split("-")[1]?.toUpperCase()
-  return region && regionCurrencyMap[region] ? regionCurrencyMap[region] : "USD"
-}
-
 export default function MarketingLandingPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading } = useAuth()
-  const [currency, setCurrency] = useState<keyof typeof currencyMeta>("USD")
   const heroRef = useRef<HTMLDivElement>(null)
   const featuresRef = useRef<HTMLDivElement>(null)
   const builderRef = useRef<HTMLDivElement>(null)
@@ -35,28 +29,9 @@ export default function MarketingLandingPage() {
   }, [isAuthenticated, isLoading, router])
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setCurrency(getRegionFromLanguage(navigator.language || "en-US"))
-    }
-  }, [])
-
-  useEffect(() => {
     document.body.classList.add("marketing-mode")
     return () => document.body.classList.remove("marketing-mode")
   }, [])
-
-  const meta = currencyMeta[currency]
-  const localizedTiers = useMemo(
-    () =>
-      pricingTiers.map((tier) => {
-        const localizedPrice = tier.price === 0 ? 0 : Math.round(tier.price * meta.rate)
-        return {
-          ...tier,
-          display: tier.price === 0 ? "Free" : `${meta.symbol}${localizedPrice}${meta.suffix}`,
-        }
-      }),
-    [meta, currency],
-  )
 
   if (isAuthenticated) {
     return null
@@ -189,28 +164,8 @@ export default function MarketingLandingPage() {
         </div>
       </section>
 
-      <section ref={pricingRef} className="space-y-6">
-        <div className="flex flex-col gap-3">
-          <p className="text-xs uppercase tracking-[0.4em] text-white/50">Pricing</p>
-          <h2 className="font-display text-3xl text-white">Choose your plan</h2>
-          <p className="text-white/70">Currency shown in {meta.label}, rounded to the nearest whole number.</p>
-        </div>
-        <div className="grid gap-6 md:grid-cols-3">
-          {localizedTiers.map((tier) => (
-            <div key={tier.id} className="rounded-[28px] border border-white/10 bg-white/5 p-6 text-white">
-              <div className="flex items-center justify-between">
-                <p className="text-lg font-semibold">{tier.name}</p>
-                {tier.id === "creator" && <span className="rounded-full bg-amber-400/20 px-3 py-1 text-xs text-amber-200">Popular</span>}
-              </div>
-              <p className="mt-2 text-sm text-white/60">{tier.description}</p>
-              <p className="mt-6 text-3xl font-semibold">{tier.display}</p>
-              <p className="text-sm text-white/60">{tier.perk}</p>
-              <Button className="mt-6 w-full rounded-full bg-amber-400 text-black hover:bg-amber-300">
-                {tier.id === "creator" ? "Selected" : "Choose plan"}
-              </Button>
-            </div>
-          ))}
-        </div>
+      <section ref={pricingRef}>
+        <PricingPlans />
       </section>
 
       <section ref={contactRef} className="rounded-[32px] border border-white/10 bg-white/5 p-8 text-white">

@@ -99,7 +99,7 @@ export function SignInOverlay() {
 
       {!isAuthenticated && (
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-md border border-white/10 bg-gradient-to-br from-[#0d0c18] via-[#090712] to-[#040308] text-white">
+          <DialogContent className="max-w-lg overflow-hidden border border-white/15 bg-white/10 p-0 text-white backdrop-blur-3xl">
             <AuthForms initialTab={authMode} onSuccess={() => setOpen(false)} />
           </DialogContent>
         </Dialog>

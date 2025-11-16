@@ -112,7 +112,10 @@ export default function Navbar() {
     [],
   )
 
-  const protectedRoutes = useMemo(() => new Set(["/my-library", "/my-projects", "/my-kits"]), [])
+  const protectedRoutes = useMemo(
+    () => new Set(["/my-library", "/my-projects", "/my-kits", "/marketplace/stats"]),
+    [],
+  )
 
   const handleProtectedClick = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     if (!isAuthenticated && protectedRoutes.has(href)) {

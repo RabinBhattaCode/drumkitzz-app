@@ -19,7 +19,7 @@ const faqs = [
 
 export default function HelpPage() {
   return (
-    <div className="w-full max-w-4xl space-y-6 px-4 py-10 lg:px-0">
+    <div className="mx-auto w-full max-w-4xl space-y-6 px-4 py-10 lg:px-0">
       <PageHero eyebrow="Support" title="Help center" description="Answers for the most common kit-building questions." />
       <div className="space-y-4">
         {faqs.map((faq) => (
