@@ -25,16 +25,17 @@ alter table public.profiles enable row level security;
 
 create policy "profiles are viewable by authenticated users"
   on public.profiles for select
-  using (auth.role() = 'authenticated');
+  using ((select auth.role()) = 'authenticated');
 
 create policy "users can modify their own profile"
   on public.profiles for all
-  using (auth.uid() = id)
-  with check (auth.uid() = id);
+  using ((select auth.uid()) = id)
+  with check ((select auth.uid()) = id);
 
 -- KIT PROJECTS ---------------------------------------------------------------
 create type public.kit_status as enum ('draft', 'processing', 'ready', 'published', 'archived');
 create type public.visibility_type as enum ('public', 'private');
+create type public.kit_asset_type as enum ('original', 'chop', 'stem', 'preview', 'midi', 'other');
 
 create table if not exists public.kit_projects (
   id uuid primary key default gen_random_uuid(),
@@ -43,6 +44,9 @@ create table if not exists public.kit_projects (
   source_audio_path text,
   source_duration numeric,
   slice_settings jsonb default '{}',
+  playback_config jsonb default '{}',
+  fx_chains jsonb default '{}',
+  notes text,
   status kit_status default 'draft',
   linked_kit_id uuid,
   created_at timestamptz default timezone('utc', now()),
@@ -147,6 +151,64 @@ create policy "slices writable by owner"
       where p.id = project_id and p.owner_id = auth.uid()
     )
   );
+
+-- KIT ASSETS -----------------------------------------------------------------
+create table if not exists public.kit_assets (
+  id uuid primary key default gen_random_uuid(),
+  kit_id uuid not null references public.kits (id) on delete cascade,
+  project_id uuid references public.kit_projects (id) on delete set null,
+  owner_id uuid not null references public.profiles (id) on delete cascade,
+  asset_type kit_asset_type default 'chop',
+  storage_path text not null,
+  duration_ms integer,
+  size_bytes bigint,
+  checksum text,
+  metadata jsonb default '{}',
+  created_at timestamptz default timezone('utc', now())
+);
+
+create index if not exists kit_assets_kit_idx on public.kit_assets (kit_id);
+create index if not exists kit_assets_owner_idx on public.kit_assets (owner_id);
+
+alter table public.kit_assets enable row level security;
+
+create policy "assets readable by owner"
+  on public.kit_assets for select
+  using (auth.uid() = owner_id);
+
+create policy "assets writable by owner"
+  on public.kit_assets for all
+  using (auth.uid() = owner_id)
+  with check (auth.uid() = owner_id);
+
+-- USER STATS RPC -------------------------------------------------------------
+create or replace function public.get_my_stats()
+returns table (
+  kits_count integer,
+  projects_count integer,
+  last_active_at timestamptz,
+  total_kit_downloads bigint,
+  latest_project_id uuid,
+  latest_kit_id uuid
+) security definer
+set search_path = public
+as $$
+begin
+  return query
+  select
+    (select count(*) from public.kits k where k.owner_id = auth.uid()) as kits_count,
+    (select count(*) from public.kit_projects p where p.owner_id = auth.uid()) as projects_count,
+    greatest(
+      coalesce((select max(updated_at) from public.kit_projects p where p.owner_id = auth.uid()), 'epoch'::timestamptz),
+      coalesce((select max(updated_at) from public.kits k where k.owner_id = auth.uid()), 'epoch'::timestamptz)
+    ) as last_active_at,
+    (select coalesce(sum(download_count), 0) from public.kits k where k.owner_id = auth.uid()) as total_kit_downloads,
+    (select id from public.kit_projects p where p.owner_id = auth.uid() order by p.updated_at desc limit 1) as latest_project_id,
+    (select id from public.kits k where k.owner_id = auth.uid() order by k.updated_at desc limit 1) as latest_kit_id;
+end;
+$$ language plpgsql stable;
+
+grant execute on function public.get_my_stats to authenticated;
 
 -- PURCHASES -----------------------------------------------------------------
 create table if not exists public.purchases (

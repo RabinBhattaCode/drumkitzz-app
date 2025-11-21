@@ -4,6 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const { uploadToLalal, splitWithLalal, waitForSplit } = require('./lalalService');
+const { uploadLalalResultsToSupabase } = require('./storageService');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -68,6 +69,23 @@ app.post('/api/lalal/split-drums', upload.single('file'), async (req, res) => {
     const splitResult = await waitForSplit(uploadResult.id);
     console.log('Split completed successfully');
 
+    // Optional: upload stems to Supabase storage when enabled and user info is provided
+    let supabaseUploads = null;
+    if (process.env.SUPABASE_UPLOAD_RESULTS === 'true' && req.body?.userId) {
+      try {
+        supabaseUploads = await uploadLalalResultsToSupabase({
+          userId: req.body.userId,
+          projectId: req.body.projectId,
+          kitId: req.body.kitId,
+          stemTrackUrl: splitResult.stem_track,
+          backTrackUrl: splitResult.back_track,
+          originalFilename,
+        });
+      } catch (storageError) {
+        console.warn('Supabase upload skipped:', storageError.message);
+      }
+    }
+
     // Step 4: Return the results to the frontend
     return res.json({
       success: true,
@@ -77,6 +95,7 @@ app.post('/api/lalal/split-drums', upload.single('file'), async (req, res) => {
       stemTrackSize: splitResult.stem_track_size,
       backTrackSize: splitResult.back_track_size,
       stem: splitResult.stem,
+      supabaseUploads,
     });
 
   } catch (error) {
