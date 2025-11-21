@@ -21,7 +21,7 @@ const mockNotifications = [
   { id: "2", message: "drumgod commented on 'Urban Beats'", time: "5 hours ago", read: false },
 ]
 
-export function SignInOverlay() {
+export function SignInOverlay({ showTopBar = true }: { showTopBar?: boolean }) {
   const { isAuthenticated } = useAuth()
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
@@ -45,23 +45,25 @@ export function SignInOverlay() {
       setAuthMode(custom.detail?.mode ?? "login")
       setOpen(true)
     }
+    const handleClose = () => setOpen(false)
     window.addEventListener("open-auth-overlay", handleOpen as EventListener)
-    return () => window.removeEventListener("open-auth-overlay", handleOpen as EventListener)
+    window.addEventListener("close-auth-overlay", handleClose as EventListener)
+    return () => {
+      window.removeEventListener("open-auth-overlay", handleOpen as EventListener)
+      window.removeEventListener("close-auth-overlay", handleClose as EventListener)
+    }
   }, [])
 
   const cartTotal = cartItems.reduce((sum, item) => sum + item.price, 0)
 
-  if (pathname?.startsWith("/marketing")) {
-    return null
-  }
-
   return (
     <>
-      <div
-        className={`fixed right-4 top-4 z-40 flex items-center gap-3 rounded-full border border-white/15 px-4 py-2 transition ${
-          scrolled ? "bg-black/25 backdrop-blur" : "bg-black/15"
-        }`}
-      >
+      {showTopBar && (
+        <div
+          className={`fixed right-4 top-4 z-40 flex items-center gap-3 rounded-full px-2 py-2 transition ${
+            scrolled ? "bg-black/10 backdrop-blur" : "bg-transparent"
+          }`}
+        >
         {isAuthenticated ? (
           <>
             <Button
@@ -86,7 +88,7 @@ export function SignInOverlay() {
         ) : (
           <Button
             variant="ghost"
-            className="rounded-full border border-white/20 bg-transparent text-white transition hover:border-white/40 hover:shadow-[0_0_18px_rgba(245,217,122,0.25)]"
+            className="rounded-full border-none bg-amber-400/90 px-4 text-black shadow-none transition hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-0"
             onClick={() => {
               setAuthMode("login")
               setOpen(true)
@@ -95,12 +97,13 @@ export function SignInOverlay() {
             Sign In
           </Button>
         )}
-      </div>
+        </div>
+      )}
 
       {!isAuthenticated && (
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-lg overflow-hidden border border-white/15 bg-white/10 p-0 text-white backdrop-blur-3xl">
-            <AuthForms initialTab={authMode} onSuccess={() => setOpen(false)} />
+          <DialogContent className="max-w-lg overflow-hidden border-none bg-transparent p-0 text-white backdrop-blur-3xl">
+            <AuthForms initialTab="login" onSuccess={() => setOpen(false)} />
           </DialogContent>
         </Dialog>
       )}

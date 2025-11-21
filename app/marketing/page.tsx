@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { PricingPlans } from "@/components/pricing/pricing-plans"
+import { SignInOverlay } from "@/components/sign-in-overlay"
 import { useAuth } from "@/lib/auth-context"
 
 const builderScreenshot = "https://ik.imagekit.io/vv1coyjgq/Screenshot%202025-11-14%20at%2020.33.09.png?updatedAt=1763152418123"
@@ -39,6 +40,7 @@ export default function MarketingLandingPage() {
 
   return (
     <div className="page-glow mx-auto flex w-full max-w-6xl flex-col gap-16 px-4 py-10 lg:px-0">
+      <SignInOverlay showTopBar={false} />
       <header className="sticky top-4 z-20 mx-auto flex w-full max-w-4xl items-center justify-between rounded-full border border-white/10 bg-black/40 px-6 py-3 text-sm text-white shadow-lg backdrop-blur">
         <Link href="/marketing" className="flex items-center">
           <Image
@@ -67,11 +69,12 @@ export default function MarketingLandingPage() {
             </button>
           ))}
         </nav>
-        <Link href="/home" target="_blank" rel="noreferrer">
-          <Button className="rounded-full border border-white/30 bg-gradient-to-r from-white/15 to-white/5 text-white shadow-[0_0_25px_rgba(255,255,255,0.2)] hover:bg-white/20">
-            Slice for free
-          </Button>
-        </Link>
+        <Button
+          className="rounded-full border-none bg-amber-400 text-black shadow-none transition hover:bg-amber-300"
+          onClick={() => window.dispatchEvent(new CustomEvent("open-auth-overlay", { detail: { mode: "login" } }))}
+        >
+          Sign In
+        </Button>
       </header>
 
       <section

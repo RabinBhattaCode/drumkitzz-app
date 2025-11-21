@@ -6,10 +6,18 @@ import type { Database } from "@/lib/database.types"
 export const runtime = "nodejs"
 
 export async function POST(request: Request) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!supabaseUrl || !supabaseServiceKey) {
-    console.error("Missing Supabase env vars", { supabaseUrl: !!supabaseUrl, supabaseServiceKey: !!supabaseServiceKey })
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  const urlPattern = /^https?:\/\/.+/i
+  const jwtPattern = /^[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+$/
+
+  if (!supabaseUrl || !urlPattern.test(supabaseUrl)) {
+    console.error("Missing or invalid Supabase URL", { supabaseUrl: !!supabaseUrl })
+    return NextResponse.json({ error: "Supabase admin client not configured" }, { status: 500 })
+  }
+
+  if (!supabaseServiceKey || !jwtPattern.test(supabaseServiceKey)) {
+    console.error("Invalid Supabase service key format (expected JWT-like string)")
     return NextResponse.json({ error: "Supabase admin client not configured" }, { status: 500 })
   }
 
@@ -25,6 +33,11 @@ export async function POST(request: Request) {
 
   if (!email || !password || !firstName || !lastName || !username) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+  }
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailPattern.test(email)) {
+    return NextResponse.json({ error: "Please enter a valid email address" }, { status: 400 })
   }
 
   const safeEmail = email.trim().toLowerCase()
@@ -43,28 +56,37 @@ export async function POST(request: Request) {
     )
   }
 
-  const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email: safeEmail,
-    password,
-    email_confirm: true,
-    user_metadata: {
-      first_name: firstName,
-      last_name,
+  try {
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+      email: safeEmail,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        first_name: firstName,
+        last_name,
+        username: cleanedUsername,
+      },
+    })
+
+    if (error || !data.user) {
+      console.error("Supabase admin createUser error", error)
+      const friendly =
+        error?.message?.includes("pattern") || error?.message?.includes("email")
+          ? "Please enter a valid email address"
+          : error?.message
+      return NextResponse.json({ error: friendly ?? "Unable to create account" }, { status: 400 })
+    }
+
+    await supabaseAdmin.from("profiles").upsert({
+      id: data.user.id,
       username: cleanedUsername,
-    },
-  })
+      display_name: `${firstName} ${lastName}`.trim(),
+      avatar_url: null,
+    })
 
-  if (error || !data.user) {
-    console.error("Supabase admin createUser error", error)
-    return NextResponse.json({ error: error?.message ?? "Unable to create account" }, { status: 400 })
+    return NextResponse.json({ user: data.user })
+  } catch (err) {
+    console.error("Unexpected signup error", err)
+    return NextResponse.json({ error: "Unexpected error creating account" }, { status: 500 })
   }
-
-  await supabaseAdmin.from("profiles").upsert({
-    id: data.user.id,
-    username: cleanedUsername,
-    display_name: `${firstName} ${lastName}`.trim(),
-    avatar_url: null,
-  })
-
-  return NextResponse.json({ user: data.user })
 }

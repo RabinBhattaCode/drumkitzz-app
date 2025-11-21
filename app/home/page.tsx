@@ -161,9 +161,9 @@ export default function HomePage() {
             <div className="grid gap-4 md:grid-cols-2">
               <div className="rounded-[24px] border border-white/15 bg-white/5/10 p-6 backdrop-blur">
                 <p className="text-sm text-white/70">Hey there, create an account to get started!</p>
-                <Button className="mt-3 rounded-full bg-amber-400 text-black hover:bg-amber-300" onClick={() => setShowSignup(true)}>
-                  Create an account
-                </Button>
+                <Link href="/signup">
+                  <Button className="mt-3 w-full rounded-full bg-amber-400 text-black hover:bg-amber-300">Create an account</Button>
+                </Link>
               </div>
               <div className="rounded-[24px] border border-white/15 bg-gradient-to-r from-[#f5d97a]/20 to-[#b37a09]/10 p-6">
                 <p className="text-sm text-white/70">Already inspired? Jump into the kit builder.</p>
