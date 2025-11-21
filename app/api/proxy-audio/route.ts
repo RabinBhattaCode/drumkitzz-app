@@ -11,11 +11,22 @@ export async function GET(request: NextRequest) {
     const upstream = await fetch(url, { method: "GET" })
 
     if (!upstream.ok) {
-      return NextResponse.json({
-        error: `Failed to fetch audio (${upstream.status})`,
+      const bodyText = await upstream.text().catch(() => "")
+      console.error("proxy-audio upstream error", {
+        url,
+        status: upstream.status,
         statusText: upstream.statusText,
-        url: url
-      }, { status: 502 })
+        body: bodyText?.slice(0, 500),
+      })
+      return NextResponse.json(
+        {
+          error: `Failed to fetch audio (${upstream.status})`,
+          statusText: upstream.statusText,
+          upstreamBody: bodyText?.slice(0, 500),
+          url,
+        },
+        { status: 502 },
+      )
     }
 
     // Stream the audio back with the same content type if available
@@ -36,7 +47,7 @@ export async function GET(request: NextRequest) {
       {
         error: "Proxy fetch failed",
         details: errorMessage,
-        url: url
+        url,
       },
       { status: 500 },
     )

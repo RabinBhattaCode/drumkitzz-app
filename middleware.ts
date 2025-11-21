@@ -16,11 +16,12 @@ export async function middleware(request: NextRequest) {
   const cspHeader = `
     default-src 'self';
     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.google-analytics.com;
-    style-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com;
     img-src 'self' blob: data: https://i.ytimg.com https://www.gravatar.com https://ik.imagekit.io;
-    font-src 'self';
-    connect-src 'self' https://www.googleapis.com https://www.youtube.com https://*.supabase.co;
-    media-src 'self' blob: data: https://www.youtube.com;
+    font-src 'self' https://fonts.gstatic.com;
+    connect-src 'self' https://www.googleapis.com https://www.youtube.com https://*.supabase.co https://d.lalal.ai https://*.lalal.ai https://*.uploadthing.com https://uploadthing.com https://sea1.ingest.uploadthing.com;
+    media-src 'self' blob: data: https://www.youtube.com https://d.lalal.ai https://*.lalal.ai;
     frame-src https://www.youtube.com;
   `
     .replace(/\s{2,}/g, " ")

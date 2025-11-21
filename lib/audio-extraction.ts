@@ -15,6 +15,24 @@ export interface ExtractionResult {
   error?: string
 }
 
+type LalalStem =
+  | "drum"
+  | "bass"
+  | "vocals"
+  | "voice"
+  | "piano"
+  | "electric_guitar"
+  | "acoustic_guitar"
+  | "synthesizer"
+  | "strings"
+  | "wind"
+
+function normalizeStem(stem: LalalStem) {
+  if (stem === "voice" || stem === "vocals") return "vocals"
+  if (stem === "drum") return "drums"
+  return stem
+}
+
 /**
  * Extract drums from audio using Demucs AI via Replicate API
  * This is the recommended method for production use
@@ -22,6 +40,7 @@ export interface ExtractionResult {
 export async function extractDrumsWithReplicate(
   audioFile: File,
   audioContext: AudioContext,
+  stem: LalalStem = "drum",
   onProgress?: (progress: ExtractionProgress) => void,
 ): Promise<ExtractionResult> {
   try {
@@ -35,6 +54,7 @@ export async function extractDrumsWithReplicate(
     const uploadFormData = new FormData()
     uploadFormData.append("audio", audioFile)
     uploadFormData.append("action", "upload")
+    uploadFormData.append("stem", stem)
 
     const uploadResponse = await fetch("/api/extract-drums", {
       method: "POST",
@@ -55,13 +75,13 @@ export async function extractDrumsWithReplicate(
     onProgress?.({
       stage: "processing",
       progress: 30,
-      message: "AI is separating drum stem (30-60 seconds)...",
+      message: `AI is separating ${normalizeStem(stem)} stem (30-60 seconds)...`,
     })
 
     const predictionId = uploadData.predictionId
     let attempts = 0
     const maxAttempts = 120 // 2 minutes max (check every second)
-    let drumStemUrl: string | null = null
+    let stemUrl: string | null = null
 
     while (attempts < maxAttempts) {
       await new Promise((resolve) => setTimeout(resolve, 1000)) // Wait 1 second
@@ -69,6 +89,8 @@ export async function extractDrumsWithReplicate(
       const checkFormData = new FormData()
       checkFormData.append("action", "check")
       checkFormData.append("predictionId", predictionId)
+       // preserve the requested stem so the API can normalize its payload shape
+      checkFormData.append("stem", stem)
 
       const checkResponse = await fetch("/api/extract-drums", {
         method: "POST",
@@ -80,9 +102,10 @@ export async function extractDrumsWithReplicate(
       }
 
       const checkData = await checkResponse.json()
+      const maybeStemUrl = checkData.output?.stemUrl || checkData.output?.[normalizeStem(stem)] || checkData.output?.drums
 
-      if (checkData.status === "succeeded" && checkData.output?.drums) {
-        drumStemUrl = checkData.output.drums
+      if (checkData.status === "succeeded" && maybeStemUrl) {
+        stemUrl = maybeStemUrl
         break
       }
 
@@ -101,7 +124,7 @@ export async function extractDrumsWithReplicate(
       attempts++
     }
 
-    if (!drumStemUrl) {
+    if (!stemUrl) {
       throw new Error("Extraction timed out after 2 minutes")
     }
 
@@ -109,15 +132,28 @@ export async function extractDrumsWithReplicate(
     onProgress?.({
       stage: "downloading",
       progress: 90,
-      message: "Downloading drum stem...",
+      message: "Downloading stem...",
     })
 
-    const drumsResponse = await fetch(drumStemUrl)
+    // Use server proxy to avoid CORS/blocking from third-party URLs
+    const proxyUrl = `/api/proxy-audio?url=${encodeURIComponent(stemUrl)}`
+    const drumsResponse = await fetch(proxyUrl)
     if (!drumsResponse.ok) {
-      throw new Error("Failed to download drum stem")
+      let bodyText = ""
+      try {
+        bodyText = await drumsResponse.text()
+      } catch {
+        // ignore
+      }
+      throw new Error(
+        `Failed to download stem (proxy status ${drumsResponse.status})${bodyText ? ` - ${bodyText.slice(0, 200)}` : ""}`,
+      )
     }
 
     const drumsArrayBuffer = await drumsResponse.arrayBuffer()
+    if (!drumsArrayBuffer || drumsArrayBuffer.byteLength === 0) {
+      throw new Error("Downloaded stem was empty")
+    }
 
     // Step 4: Decode audio
     onProgress?.({
@@ -126,12 +162,17 @@ export async function extractDrumsWithReplicate(
       message: "Decoding audio...",
     })
 
-    const drumsBuffer = await audioContext.decodeAudioData(drumsArrayBuffer)
+    let drumsBuffer: AudioBuffer
+    try {
+      drumsBuffer = await audioContext.decodeAudioData(drumsArrayBuffer)
+    } catch (decodeError) {
+      throw new Error("Could not decode extracted stem audio")
+    }
 
     onProgress?.({
       stage: "complete",
       progress: 100,
-      message: "Drum extraction complete!",
+      message: "Stem extraction complete!",
     })
 
     return {
