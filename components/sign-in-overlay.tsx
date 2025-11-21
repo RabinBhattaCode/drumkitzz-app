@@ -21,16 +21,31 @@ const mockNotifications = [
   { id: "2", message: "drumgod commented on 'Urban Beats'", time: "5 hours ago", read: false },
 ]
 
-export function SignInOverlay({ showTopBar = true }: { showTopBar?: boolean }) {
+type SignInOverlayProps = {
+  showTopBar?: boolean
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+}
+
+export function SignInOverlay({ showTopBar = true, open: controlledOpen, onOpenChange }: SignInOverlayProps) {
   const { isAuthenticated } = useAuth()
   const pathname = usePathname()
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [authMode, setAuthMode] = useState<"login" | "signup">("login")
   const [showCart, setShowCart] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [cartItems, setCartItems] = useState(mockCartItems)
   const [notifications, setNotifications] = useState(mockNotifications)
+
+  const isControlled = controlledOpen !== undefined
+  const open = isControlled ? controlledOpen : internalOpen
+  const setOpen = (value: boolean) => {
+    if (!isControlled) {
+      setInternalOpen(value)
+    }
+    onOpenChange?.(value)
+  }
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 40)
@@ -103,6 +118,10 @@ export function SignInOverlay({ showTopBar = true }: { showTopBar?: boolean }) {
       {!isAuthenticated && (
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent className="max-w-lg overflow-hidden border-none bg-transparent p-0 text-white backdrop-blur-3xl">
+            <DialogHeader className="sr-only">
+              <DialogTitle>Sign in</DialogTitle>
+              <DialogDescription>Authenticate to continue</DialogDescription>
+            </DialogHeader>
             <AuthForms initialTab="login" onSuccess={() => setOpen(false)} />
           </DialogContent>
         </Dialog>

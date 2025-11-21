@@ -10,23 +10,44 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getKits } from "@/lib/dashboard-data"
 import { Music, Download, Heart, MessageSquare } from 'lucide-react'
+import { formatDistanceToNow } from "date-fns"
 
 export default function ProfilePage() {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, isLoading } = useAuth()
   const router = useRouter()
   const [kits, setKits] = useState<any[]>([])
   const [activeTab, setActiveTab] = useState("kits")
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isLoading && !isAuthenticated) {
       router.push("/")
-    } else {
+    } else if (isAuthenticated) {
       setKits(getKits())
     }
-  }, [isAuthenticated, router])
+  }, [isAuthenticated, isLoading, router])
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center px-4">
+        <div className="flex items-center gap-2 text-white/70">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-l-white" />
+          Loading your profile…
+        </div>
+      </div>
+    )
+  }
 
   if (!isAuthenticated || !user) {
-    return null
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center px-4">
+        <Card className="w-full max-w-md border-white/10 bg-white/5 text-white">
+          <CardHeader>
+            <CardTitle>Profile unavailable</CardTitle>
+            <CardDescription className="text-white/70">Please sign in to view your profile.</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    )
   }
 
   const stats = {
@@ -129,7 +150,10 @@ export default function ProfilePage() {
                       <CardHeader className="pb-2">
                         <CardTitle className="text-lg truncate">{kit.name}</CardTitle>
                         <CardDescription className="text-sm">
-                          {kit.slices} slices • {kit.lastModified}
+                          {kit.sliceCount ?? kit.slices ?? 0} slices •{" "}
+                          {kit.lastModified
+                            ? formatDistanceToNow(new Date(kit.lastModified), { addSuffix: true })
+                            : "just now"}
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="pt-0">

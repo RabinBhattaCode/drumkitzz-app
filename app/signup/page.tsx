@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
 import { Button as GhostButton } from "@/components/ui/button"
+import { useSessionContext } from "@supabase/auth-helpers-react"
 
 const inputClasses =
   "h-11 rounded-2xl border-white/15 bg-white/5 text-white placeholder:text-white/60 focus-visible:ring-white/40"
@@ -18,6 +19,7 @@ const inputClasses =
 export default function SignupPage() {
   const router = useRouter()
   const { toast } = useToast()
+  const { supabaseClient } = useSessionContext()
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [username, setUsername] = useState("")
@@ -39,18 +41,29 @@ export default function SignupPage() {
     }
     setLoading(true)
     try {
-      const response = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ firstName, lastName, username, email, password }),
+      // Use Supabase email-confirm flow so users get a verification email
+      const redirectTo = `${window.location.origin}/auth/confirm`
+      const { error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: redirectTo,
+          data: {
+            first_name: firstName,
+            last_name: lastName,
+            username,
+          },
+        },
       })
-      const text = await response.text()
-      const payload = text ? (JSON.parse(text) as { error?: string }) : {}
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to create account")
+      if (error) {
+        throw error
       }
-      toast({ title: "Account created", description: "Welcome to DrumKitzz." })
-      router.push("/home")
+
+      toast({
+        title: "Verify your email",
+        description: "We sent a confirmation link to finish creating your account.",
+      })
+      router.push("/signup/check-email")
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create account"
       toast({ title: "Sign up failed", description: message, variant: "destructive" })

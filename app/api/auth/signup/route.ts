@@ -63,7 +63,7 @@ export async function POST(request: Request) {
       email_confirm: true,
       user_metadata: {
         first_name: firstName,
-        last_name,
+        last_name: lastName,
         username: cleanedUsername,
       },
     })
@@ -77,16 +77,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: friendly ?? "Unable to create account" }, { status: 400 })
     }
 
-    await supabaseAdmin.from("profiles").upsert({
+    const { error: upsertError } = await supabaseAdmin.from("profiles").upsert({
       id: data.user.id,
       username: cleanedUsername,
       display_name: `${firstName} ${lastName}`.trim(),
       avatar_url: null,
     })
 
+    if (upsertError) {
+      console.error("Supabase profiles upsert error", upsertError)
+      return NextResponse.json({ error: upsertError.message || "Unable to save profile" }, { status: 400 })
+    }
+
     return NextResponse.json({ user: data.user })
   } catch (err) {
     console.error("Unexpected signup error", err)
-    return NextResponse.json({ error: "Unexpected error creating account" }, { status: 500 })
+    const message = err instanceof Error ? err.message : "Unexpected error creating account"
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

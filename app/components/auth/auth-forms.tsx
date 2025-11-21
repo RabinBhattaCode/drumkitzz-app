@@ -13,16 +13,18 @@ import { Eye, EyeOff, Loader2 } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 import { useSessionContext } from "@supabase/auth-helpers-react"
 import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
 
 type AuthFormsProps = {
   initialTab?: "login" | "signup"
   onSuccess?: () => void
+  showHeader?: boolean
 }
 
 const inputClasses =
   "h-11 rounded-2xl border-white/25 bg-white/10 text-white placeholder:text-white/65 focus-visible:ring-white/40 backdrop-blur"
 
-export function AuthForms({ initialTab = "login", onSuccess }: AuthFormsProps) {
+export function AuthForms({ initialTab = "login", onSuccess, showHeader = true }: AuthFormsProps) {
   const [activeTab, setActiveTab] = useState<"login" | "signup">(initialTab)
   const [loginLoading, setLoginLoading] = useState(false)
   const [signupLoading, setSignupLoading] = useState(false)
@@ -39,6 +41,7 @@ export function AuthForms({ initialTab = "login", onSuccess }: AuthFormsProps) {
   const { login } = useAuth()
   const { supabaseClient } = useSessionContext()
   const { toast } = useToast()
+  const router = useRouter()
 
   useEffect(() => {
     setActiveTab(initialTab)
@@ -81,31 +84,28 @@ export function AuthForms({ initialTab = "login", onSuccess }: AuthFormsProps) {
 
     setSignupLoading(true)
     try {
-      const response = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: signupEmail,
-          password: signupPassword,
-          firstName,
-          lastName,
-          username,
-        }),
+      const redirectTo = `${window.location.origin}/auth/confirm`
+      const { error } = await supabaseClient.auth.signUp({
+        email: signupEmail,
+        password: signupPassword,
+        options: {
+          emailRedirectTo: redirectTo,
+          data: {
+            first_name: firstName,
+            last_name: lastName,
+            username,
+          },
+        },
       })
-      const text = await response.text()
-      const payload = text ? (JSON.parse(text) as { error?: string }) : {}
-      if (!response.ok) {
-        throw new Error(payload.error || "Unable to create account")
-      }
-
-      await login(signupEmail, signupPassword)
+      if (error) throw error
 
       toast({
-        title: "Account created",
-        description: "You're all set—welcome to DrumKitzz!",
+        title: "Verify your email",
+        description: "We sent a confirmation link to finish creating your account.",
       })
 
       onSuccess?.()
+      router.push("/signup/check-email")
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create account"
       toast({ title: "Sign up failed", description: message, variant: "destructive" })
@@ -142,11 +142,13 @@ export function AuthForms({ initialTab = "login", onSuccess }: AuthFormsProps) {
 
   return (
     <Card className="mx-auto w-full max-w-sm space-y-5 rounded-[32px] border border-white/20 bg-white/5/50 p-6 text-white shadow-[0_35px_140px_rgba(5,5,7,0.85)] backdrop-blur-2xl">
-      <CardHeader className="items-center space-y-2 text-center text-white">
-        <Image src="/images/drumkitzz-logo.png" alt="DrumKitzz" width={120} height={40} priority />
-        <CardTitle className="text-2xl">Welcome back</CardTitle>
-        <CardDescription className="text-white/75">Sign in to keep slicing on every device.</CardDescription>
-      </CardHeader>
+      {showHeader && (
+        <CardHeader className="items-center space-y-2 text-center text-white">
+          <Image src="/images/drumkitzz-logo.png" alt="DrumKitzz" width={120} height={40} priority />
+          <CardTitle className="text-2xl">Welcome back</CardTitle>
+          <CardDescription className="text-white/75">Sign in to keep slicing on every device.</CardDescription>
+        </CardHeader>
+      )}
       <CardContent className="space-y-3 p-0">
         <SocialButtons onProviderClick={(label) => toast({ title: `${label} coming soon`, description: "Use email for now." })} />
       </CardContent>
