@@ -104,13 +104,12 @@ export default function ExtractorExperimentPage() {
   }, [router, toast])
 
   const handleYouTube = useCallback(() => {
-    setLastAction("youtube")
+    setLastAction(null)
     toast({
-      title: "YouTube extraction",
-      description: "Paste a link inside the classic editor to begin.",
+      title: "Coming soon",
+      description: "YouTube extraction will be back shortly.",
     })
-    router.push("/?view=classic&open=youtube")
-  }, [router, toast])
+  }, [toast])
 
   const formatBytes = useCallback((bytes: number) => {
     if (bytes === 0) return "0 B"
@@ -305,14 +304,13 @@ export default function ExtractorExperimentPage() {
                   type="button"
                   variant="secondary"
                   className={cn(
-                    "flex h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 text-center text-white hover:border-white/30 hover:bg-white/20",
-                    lastAction === "youtube" && "border-indigo-400/70",
+                    "flex h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/10 text-center text-white opacity-60",
                   )}
                   onClick={handleYouTube}
                 >
                   <Youtube className="h-5 w-5" />
                   <span className="text-sm font-medium">YouTube</span>
-                  <span className="text-[11px] uppercase tracking-wide text-white/60">Paste link</span>
+                  <span className="text-[11px] uppercase tracking-wide text-white/60">Coming soon</span>
                 </Button>
               </div>
 

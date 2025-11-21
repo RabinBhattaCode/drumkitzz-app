@@ -33,24 +33,180 @@ import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { saveDrumKit, type DrumKit } from "@/lib/dashboard-data"
 import { uploadFiles } from "@/lib/uploadthing"
-import {
-  COLOR_PRESETS,
-  COMP_PRESETS,
-  EQ_PRESETS,
-  KIT_OUTPUT_OPTIONS,
-  defaultFxSettings,
-  filterPresetKeys,
-  mapSliceTypeToKey,
-  type EqBandType,
-  type KitOutputId,
-  type SaturationMode,
-  type SliceFxSettings,
-} from "@/components/create/drum-slicer-pro/state"
-import { SliceFxControls } from "@/components/create/drum-slicer-pro/fx-controls"
 
 // Define OfflineContext type
 type OfflineContext = OfflineAudioContext
 
+type KitOutputId = "drum-kit" | "instrument-one-shots" | "vocal-chops" | "bass-one-shots"
+type EqBandType = "bell" | "low_shelf" | "high_shelf"
+type SaturationMode = "tape" | "tube" | "transistor"
+type SliceTypeKey = "kick" | "snare" | "clap" | "hat" | "perc" | "generic"
+
+type SliceFxSettings = {
+  volume: { active: boolean; gain: number }
+  eq: {
+    active: boolean
+    preset?: string
+    bands: Array<{ freq: number; gain: number; q: number; type: EqBandType }>
+  }
+  comp: {
+    active: boolean
+    preset?: string
+    threshold: number
+    ratio: number
+    attack: number
+    release: number
+    makeup: number
+  }
+  color: {
+    active: boolean
+    preset?: string
+    drive: number
+    mix: number
+    output: number
+    mode: SaturationMode
+  }
+}
+
+const defaultFxSettings = (): SliceFxSettings => ({
+  volume: { active: false, gain: 0 },
+  eq: {
+    active: false,
+    preset: undefined,
+    bands: [
+      { freq: 60, gain: 0, q: 0.9, type: "low_shelf" },
+      { freq: 250, gain: 0, q: 1, type: "bell" },
+      { freq: 1000, gain: 0, q: 1, type: "bell" },
+      { freq: 4000, gain: 0, q: 1, type: "bell" },
+      { freq: 8000, gain: 0, q: 1, type: "bell" },
+      { freq: 12000, gain: 0, q: 0.8, type: "high_shelf" },
+    ],
+  },
+  comp: {
+    active: false,
+    preset: undefined,
+    threshold: -12,
+    ratio: 3,
+    attack: 10,
+    release: 100,
+    makeup: 0,
+  },
+  color: {
+    active: false,
+    preset: undefined,
+    drive: 6,
+    mix: 60,
+    output: 0,
+    mode: "tape",
+  },
+})
+
+const EQ_PRESETS: Record<string, { label: string; bands: SliceFxSettings["eq"]["bands"] }> = {
+  kick: {
+    label: "Kick – Punchy",
+    bands: [
+      { freq: 60, gain: 4, q: 0.7, type: "low_shelf" },
+      { freq: 320, gain: -4, q: 1.2, type: "bell" },
+      { freq: 3000, gain: 3, q: 1, type: "bell" },
+      { freq: 12000, gain: 2, q: 0.8, type: "high_shelf" },
+      { freq: 250, gain: 0, q: 1, type: "bell" },
+      { freq: 7000, gain: 0, q: 1, type: "bell" },
+    ],
+  },
+  snare: {
+    label: "Snare – Snap",
+    bands: [
+      { freq: 80, gain: -2, q: 0.7, type: "bell" },
+      { freq: 200, gain: 4, q: 1, type: "bell" },
+      { freq: 5000, gain: 6, q: 1, type: "bell" },
+      { freq: 9000, gain: 2, q: 0.9, type: "high_shelf" },
+      { freq: 300, gain: 0, q: 1, type: "bell" },
+      { freq: 1200, gain: 0, q: 1, type: "bell" },
+    ],
+  },
+  clap: {
+    label: "Clap – Air",
+    bands: [
+      { freq: 180, gain: -3, q: 1.1, type: "bell" },
+      { freq: 300, gain: -3, q: 1.1, type: "bell" },
+      { freq: 8000, gain: 3, q: 1, type: "bell" },
+      { freq: 12000, gain: 2, q: 0.8, type: "high_shelf" },
+      { freq: 6000, gain: 0, q: 1, type: "bell" },
+      { freq: 50, gain: 0, q: 1, type: "low_shelf" },
+    ],
+  },
+  hat: {
+    label: "Hi-Hat – Bright",
+    bands: [
+      { freq: 350, gain: -6, q: 1.2, type: "low_shelf" },
+      { freq: 8000, gain: 5, q: 1, type: "bell" },
+      { freq: 10000, gain: 3, q: 0.8, type: "high_shelf" },
+      { freq: 7500, gain: -2, q: 1.2, type: "bell" },
+      { freq: 1500, gain: 0, q: 1, type: "bell" },
+      { freq: 500, gain: 0, q: 1, type: "bell" },
+    ],
+  },
+  perc: {
+    label: "Perc – Clear",
+    bands: [
+      { freq: 400, gain: -3, q: 1.2, type: "bell" },
+      { freq: 5500, gain: 2, q: 1, type: "bell" },
+      { freq: 8000, gain: 2, q: 0.9, type: "high_shelf" },
+      { freq: 150, gain: 2, q: 1, type: "bell" },
+      { freq: 50, gain: 0, q: 1.4, type: "low_shelf" },
+      { freq: 2500, gain: 0, q: 1, type: "bell" },
+    ],
+  },
+  generic: {
+    label: "Balanced",
+    bands: [
+      { freq: 60, gain: 0, q: 0.9, type: "low_shelf" },
+      { freq: 300, gain: -1, q: 1.2, type: "bell" },
+      { freq: 1000, gain: 1, q: 1, type: "bell" },
+      { freq: 4000, gain: 1, q: 1, type: "bell" },
+      { freq: 8000, gain: 2, q: 0.9, type: "high_shelf" },
+      { freq: 200, gain: 0, q: 1.2, type: "bell" },
+    ],
+  },
+}
+
+const COMP_PRESETS: Record<string, { label: string; settings: Pick<SliceFxSettings["comp"], "threshold" | "ratio" | "attack" | "release" | "makeup"> }> =
+  {
+    kick: { label: "Kick – Punch", settings: { threshold: -10, ratio: 4, attack: 25, release: 100, makeup: 3 } },
+    snare: { label: "Snare – Snap", settings: { threshold: -12, ratio: 3, attack: 12, release: 120, makeup: 4 } },
+    clap: { label: "Clap – Tight", settings: { threshold: -14, ratio: 3, attack: 15, release: 180, makeup: 3 } },
+    hat: { label: "Hat – Gentle", settings: { threshold: -6, ratio: 2, attack: 8, release: 70, makeup: 1 } },
+    perc: { label: "Perc – Tight", settings: { threshold: -10, ratio: 3.5, attack: 12, release: 100, makeup: 2 } },
+    generic: { label: "Glue", settings: { threshold: -10, ratio: 3, attack: 15, release: 120, makeup: 2 } },
+  }
+
+const COLOR_PRESETS: Record<string, { label: string; settings: Pick<SliceFxSettings["color"], "drive" | "mix" | "output" | "mode"> }> = {
+  kick: { label: "Kick – Warm", settings: { drive: 7, mix: 60, output: -1, mode: "tape" } },
+  snare: { label: "Snare – Crunch", settings: { drive: 8, mix: 50, output: -1, mode: "tube" } },
+  clap: { label: "Clap – Wide", settings: { drive: 6, mix: 50, output: -1, mode: "tape" } },
+  hat: { label: "Hat – Shimmer", settings: { drive: 4, mix: 55, output: 0, mode: "transistor" } },
+  perc: { label: "Perc – Grit", settings: { drive: 7, mix: 60, output: -1, mode: "transistor" } },
+  generic: { label: "Warmth", settings: { drive: 6, mix: 55, output: -1, mode: "tube" } },
+}
+
+const mapSliceTypeToKey = (type: string | undefined): SliceTypeKey => {
+  const t = (type || "").toLowerCase()
+  if (t.includes("kick")) return "kick"
+  if (t.includes("snare")) return "snare"
+  if (t.includes("clap")) return "clap"
+  if (t.includes("hat")) return "hat"
+  if (t.includes("perc")) return "perc"
+  return "generic"
+}
+
+const filterPresetKeys = (keys: string[], sliceType: SliceTypeKey) => keys.filter((k) => k === sliceType || k === "generic")
+
+const KIT_OUTPUT_OPTIONS: Array<{ id: KitOutputId; title: string; description: string; helper: string; disabled?: boolean }> = [
+  { id: "drum-kit", title: "Drum Kit", description: "Full stems, tops, and percussion", helper: "Multi-format ready" },
+  { id: "instrument-one-shots", title: "Instrument One Shots", description: "Keys, synth stabs, melodic hits", helper: "Coming soon", disabled: true },
+  { id: "vocal-chops", title: "Vocal Chops", description: "VOX hooks and phrases", helper: "Coming soon", disabled: true },
+  { id: "bass-one-shots", title: "Bass One Shots", description: "Low-end punches and subs", helper: "Coming soon", disabled: true },
+]
 
 const MIN_TRIM_DURATION = 3
 const MAX_TRIM_DURATION = 60
@@ -743,53 +899,6 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     setIsUploadDragActive(false)
   }
 
-  const extractFileFromDataTransfer = (dt: DataTransfer | null): File | null => {
-    if (!dt) return null
-    if (dt.files && dt.files.length > 0) return dt.files[0]
-    if (dt.items && dt.items.length > 0) {
-      for (let i = 0; i < dt.items.length; i++) {
-        const item = dt.items[i]
-        if (item.kind === "file") {
-          const f = item.getAsFile()
-          if (f) return f
-        }
-      }
-    }
-    return null
-  }
-
-  // Capture global drops so dragging anywhere still opens trim dialog
-  useEffect(() => {
-    const onGlobalDragOver = (e: DragEvent) => {
-      e.preventDefault()
-      setIsUploadDragActive(true)
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
-    }
-    const onGlobalDrop = (e: DragEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      setIsUploadDragActive(false)
-      const file = extractFileFromDataTransfer(e.dataTransfer)
-      if (file && isSupportedFile(file)) {
-        void prepareAudioFileForSlicing(file)
-      }
-    }
-    const onGlobalDragLeave = (e: DragEvent) => {
-      e.preventDefault()
-      setIsUploadDragActive(false)
-    }
-    window.addEventListener("dragover", onGlobalDragOver)
-    window.addEventListener("dragleave", onGlobalDragLeave)
-    window.addEventListener("drop", onGlobalDrop)
-    return () => {
-      window.removeEventListener("dragover", onGlobalDragOver)
-      window.removeEventListener("dragleave", onGlobalDragLeave)
-      window.removeEventListener("drop", onGlobalDrop)
-    }
-    // prepareAudioFileForSlicing is stable enough for this usage
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -884,13 +993,6 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
           title: "Drum extraction complete",
           description: "Drum stem extracted successfully",
         })
-
-        // Auto-run slicing on the extracted stem buffer
-        try {
-          await detectSlices(result.audioBuffer)
-        } catch (sliceError) {
-          console.error("Auto slicing failed after extraction:", sliceError)
-        }
 
         // Auto-close dialog after 2 seconds on success
         setTimeout(() => {
@@ -1077,9 +1179,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   }
 
   // Detect slices based on transients
-  const detectSlices = async (bufferArg?: AudioBuffer) => {
-    const buffer = bufferArg ?? audioBuffer
-    if (!buffer) return
+  const detectSlices = async () => {
+    if (!audioBuffer) return
 
     // Ensure audio context is initialized
     if (!audioContextInitialized) {
@@ -1090,8 +1191,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
     try {
       // Get audio data from the buffer
-      const audioData = buffer.getChannelData(0)
-      const sampleRate = buffer.sampleRate
+      const audioData = audioBuffer.getChannelData(0)
+      const sampleRate = audioBuffer.sampleRate
 
       // Use the current potential slices or detect them if none exist
       let transients = potentialSlices

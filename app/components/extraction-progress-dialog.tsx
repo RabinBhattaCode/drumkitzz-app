@@ -1,7 +1,6 @@
 "use client"
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Progress } from "@/components/ui/progress"
 import { Loader2, CheckCircle2, XCircle } from "lucide-react"
 import type { ExtractionProgress } from "@/lib/audio-extraction"
 
@@ -19,7 +18,7 @@ export function ExtractionProgressDialog({ isOpen, progress, onClose }: Extracti
       case "error":
         return <XCircle className="h-12 w-12 text-red-500" />
       default:
-        return <Loader2 className="h-12 w-12 animate-spin text-[#f5d97a]" />
+        return null
     }
   }
 
@@ -48,12 +47,18 @@ export function ExtractionProgressDialog({ isOpen, progress, onClose }: Extracti
             {getIcon()}
             <span>{getTitle()}</span>
           </DialogTitle>
-          <DialogDescription className="text-center">{progress.message}</DialogDescription>
+          {progress.stage === "error" || progress.stage === "complete" ? (
+            <DialogDescription className="text-center">{progress.message}</DialogDescription>
+          ) : null}
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          <Progress value={progress.progress} className="h-2" />
-          <div className="text-center text-sm text-muted-foreground">{progress.progress.toFixed(0)}%</div>
+          {progress.stage !== "complete" && progress.stage !== "error" && (
+            <div className="flex flex-col items-center justify-center gap-2">
+              <Loader2 className="h-10 w-10 animate-spin text-[#f5d97a]" />
+              <div className="text-center text-sm text-muted-foreground">Extracting…</div>
+            </div>
+          )}
 
           {progress.stage === "processing" && (
             <div className="text-xs text-center text-muted-foreground">

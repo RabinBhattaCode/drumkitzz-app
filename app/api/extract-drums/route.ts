@@ -16,11 +16,34 @@ const LALAL_UPLOAD_ENDPOINT = "https://www.lalal.ai/api/upload/"
 const LALAL_SPLIT_ENDPOINT = "https://www.lalal.ai/api/split/"
 const LALAL_CHECK_ENDPOINT = "https://www.lalal.ai/api/check/"
 
+const LALAL_ALLOWED_STEMS = [
+  "drum",
+  "bass",
+  "vocals",
+  "voice",
+  "piano",
+  "electric_guitar",
+  "acoustic_guitar",
+  "synthesizer",
+  "strings",
+  "wind",
+] as const
+
+type LalalStem = (typeof LALAL_ALLOWED_STEMS)[number]
+
+function normalizeStem(stem: LalalStem) {
+  if (stem === "voice" || stem === "vocals") return "vocals"
+  if (stem === "drum") return "drums"
+  return stem
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const audioFile = formData.get("audio") as File
     const action = formData.get("action") as string
+    const requestedStem = (formData.get("stem") as LalalStem | null) || "drum"
+    const stem: LalalStem = LALAL_ALLOWED_STEMS.includes(requestedStem) ? requestedStem : "drum"
 
     if (!audioFile && action === "upload") {
       return NextResponse.json({ success: false, error: "No audio file provided" }, { status: 400 })
@@ -64,7 +87,8 @@ export async function POST(request: NextRequest) {
           const params = [
             {
               id: uploadData.id,
-              stem: "drum",
+              stem,
+              splitter: "perseus",
             },
           ]
 
@@ -75,7 +99,9 @@ export async function POST(request: NextRequest) {
               "Content-Type": "application/x-www-form-urlencoded",
             },
             body: new URLSearchParams({
-              params: JSON.stringify(params),
+              id: uploadData.id,
+              stem,
+              splitter: "perseus",
             }),
           })
 
@@ -95,7 +121,8 @@ export async function POST(request: NextRequest) {
             status: "processing",
             provider: "lalal",
             taskId: splitData.task_id,
-            message: "Drum extraction started with Lalal.ai",
+            message: `Stem extraction started with Lalal.ai (${stem})`,
+            stem,
           })
         } catch (error) {
           console.error("Lalal.ai upload error:", error)
@@ -111,6 +138,8 @@ export async function POST(request: NextRequest) {
 
       if (action === "check") {
         const predictionId = formData.get("predictionId") as string
+        const stemFromClient = (formData.get("stem") as LalalStem | null) || stem
+        const normalizedStem = normalizeStem(stemFromClient)
 
         if (!predictionId) {
           return NextResponse.json({ success: false, error: "No prediction ID provided" }, { status: 400 })
@@ -137,7 +166,10 @@ export async function POST(request: NextRequest) {
                 status: string
                 error?: string
                 split?: {
+                  duration?: number
+                  stem?: string
                   stem_track?: string
+                  back_track?: string
                 }
                 task?: {
                   state?: string
@@ -146,13 +178,34 @@ export async function POST(request: NextRequest) {
                 }
               }
             >
+            task?: {
+              state?: string
+              progress?: number
+              error?: string
+            }
+            split?: {
+              duration?: number
+              stem?: string
+              stem_track?: string
+              back_track?: string
+            }
           }
 
           if (checkData.status !== "success") {
             throw new Error(checkData.error || "Failed to check Lalal.ai status")
           }
 
-          const fileResult = checkData.result?.[predictionId]
+          // Lalal sometimes nests the result under result[id], sometimes returns top-level task/split
+          const fileResult =
+            checkData.result?.[predictionId] ||
+            (checkData.task || checkData.split
+              ? {
+                  task: checkData.task,
+                  split: checkData.split,
+                  status: checkData.status,
+                  error: checkData.error,
+                }
+              : null)
 
           if (!fileResult) {
             throw new Error("No status available for requested file")
@@ -162,7 +215,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
               success: true,
               status: "succeeded",
-              output: { drums: fileResult.split.stem_track },
+              output: {
+                stemUrl: fileResult.split.stem_track,
+                backTrackUrl: fileResult.split.back_track,
+                stem: normalizeStem((fileResult.split.stem as LalalStem | undefined) ?? normalizedStem),
+                duration: fileResult.split.duration,
+              },
             })
           }
 
