@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import Replicate from "replicate"
+import { createClient } from "@supabase/supabase-js"
 
 export const runtime = "nodejs"
 
@@ -37,11 +38,68 @@ function normalizeStem(stem: LalalStem) {
   return stem
 }
 
+async function mirrorToSupabase({
+  userId,
+  projectId,
+  kitId,
+  stemUrl,
+  originalFilename = "stem.wav",
+}: {
+  userId?: string
+  projectId?: string | null
+  kitId?: string | null
+  stemUrl: string
+  originalFilename?: string
+}) {
+  if (!userId || !process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null
+
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+
+  const response = await fetch(stemUrl)
+  if (!response.ok) throw new Error(`Failed to fetch stem for Supabase upload: ${response.status}`)
+  const arrayBuffer = await response.arrayBuffer()
+  const buffer = Buffer.from(arrayBuffer)
+
+  const ext = originalFilename.includes(".") ? `.${originalFilename.split(".").pop()}` : ".wav"
+  const path = [userId, projectId || kitId || "unassigned", `stem-${Date.now()}${ext}`].join("/")
+
+  const { error: uploadError } = await supabase.storage.from("stems").upload(path, buffer, {
+    contentType: "audio/wav",
+    cacheControl: "3600",
+    upsert: true,
+  })
+  if (uploadError) throw new Error(uploadError.message)
+
+  const { data: signed, error: signedError } = await supabase.storage.from("stems").createSignedUrl(path, 60 * 60)
+  if (signedError) throw new Error(signedError.message)
+
+  // Insert kit_assets row (best-effort)
+  try {
+    await supabase.from("kit_assets").insert({
+      owner_id: userId,
+      project_id: projectId || null,
+      kit_id: kitId || null,
+      asset_type: "stem",
+      storage_path: path,
+      size_bytes: buffer.length,
+    })
+  } catch (err) {
+    console.warn("kit_assets insert failed:", err instanceof Error ? err.message : err)
+  }
+
+  return { path, signedUrl: signed.signedUrl }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const audioFile = formData.get("audio") as File
     const action = formData.get("action") as string
+    const userId = (formData.get("userId") as string | null) || undefined
+    const projectId = (formData.get("projectId") as string | null) || undefined
+    const kitId = (formData.get("kitId") as string | null) || undefined
     const requestedStem = (formData.get("stem") as LalalStem | null) || "drum"
     const stem: LalalStem = LALAL_ALLOWED_STEMS.includes(requestedStem) ? requestedStem : "drum"
 
@@ -212,6 +270,21 @@ export async function POST(request: NextRequest) {
           }
 
           if (fileResult.split?.stem_track) {
+            let supabaseUpload: { path: string; signedUrl: string } | null = null
+            if (process.env.SUPABASE_UPLOAD_RESULTS === "true") {
+              try {
+                supabaseUpload = await mirrorToSupabase({
+                  userId,
+                  projectId,
+                  kitId,
+                  stemUrl: fileResult.split.stem_track,
+                  originalFilename: audioFile?.name ?? "stem.wav",
+                })
+              } catch (err) {
+                console.warn("Supabase mirror skipped:", err instanceof Error ? err.message : err)
+              }
+            }
+
             return NextResponse.json({
               success: true,
               status: "succeeded",
@@ -220,6 +293,7 @@ export async function POST(request: NextRequest) {
                 backTrackUrl: fileResult.split.back_track,
                 stem: normalizeStem((fileResult.split.stem as LalalStem | undefined) ?? normalizedStem),
                 duration: fileResult.split.duration,
+                supabaseUploads: supabaseUpload ? [supabaseUpload] : [],
               },
             })
           }

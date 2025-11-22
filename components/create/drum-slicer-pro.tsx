@@ -29,9 +29,8 @@ import {
 import { extractDrumsWithLalalAI, type ExtractionProgress } from "@/lib/audio-extraction"
 import { ExtractionProgressDialog } from "@/app/components/extraction-progress-dialog"
 import { useAuth } from "@/lib/auth-context"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { saveDrumKit, type DrumKit } from "@/lib/dashboard-data"
 import { uploadFiles } from "@/lib/uploadthing"
 import {
   COLOR_PRESETS,
@@ -47,6 +46,7 @@ import {
   type SliceFxSettings,
 } from "@/components/create/drum-slicer-pro/state"
 import { SliceFxControls } from "@/components/create/drum-slicer-pro/fx-controls"
+import { createBrowserClient } from "@/lib/supabase-browser"
 
 // Define OfflineContext type
 type OfflineContext = OfflineAudioContext
@@ -178,6 +178,10 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [gridLayout, setGridLayout] = useState<1 | 2 | 3 | 4>(3) // Default to 3 slices per row (small view)
   const [auditionEnabled, setAuditionEnabled] = useState(false)
   const [activeAuditionKey, setActiveAuditionKey] = useState<string | null>(null)
+  const [notes, setNotes] = useState<string>("")
+  const [projectId, setProjectId] = useState<string | null>(null)
+  const [kitId, setKitId] = useState<string | null>(null)
+  const [isSavingProject, setIsSavingProject] = useState(false)
 
   // Ensure each slice has FX defaults
   useEffect(() => {
@@ -216,6 +220,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const offlineAudioContextRef = useRef<OfflineContext | null>(null)
   const auditionPressedKeysRef = useRef<Set<string>>(new Set())
   const { toast } = useToast()
+  const { user } = useAuth()
+  const searchParams = useSearchParams()
 
   // Refs for waveform interaction
   const containerRef = useRef<HTMLDivElement>(null)
@@ -790,6 +796,90 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Load project by query param
+  useEffect(() => {
+    const pid = searchParams.get("projectId")
+    if (!pid || projectId === pid) return
+    if (!user) {
+      toast({
+        title: "Login required",
+        description: "Sign in to open saved projects.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const loadProject = async () => {
+      try {
+        setIsProcessing(true)
+        const supabase = createBrowserClient()
+        const { data: project, error } = await supabase
+          .from("kit_projects")
+          .select("id,title,source_audio_path,source_duration,slice_settings,playback_config,fx_chains,notes,status,created_at,updated_at")
+          .eq("id", pid)
+          .eq("owner_id", user.id)
+          .single()
+        if (error || !project) {
+          throw new Error(error?.message || "Project not found")
+        }
+
+        const { data: sliceRows } = await supabase
+          .from("kit_slices")
+          .select("id,name,type,start_time,end_time,fade_in_ms,fade_out_ms,metadata")
+          .eq("project_id", pid)
+          .order("start_time", { ascending: true })
+
+        setProjectId(project.id)
+        if (project.title) setKitName(project.title)
+        if (project.slice_settings?.trimSelection) setTrimSelection(project.slice_settings.trimSelection as [number, number])
+        if (project.slice_settings?.gridLayout) setGridLayout(project.slice_settings.gridLayout as 1 | 2 | 3 | 4)
+        if (typeof project.slice_settings?.sensitivity === "number") setSensitivity(project.slice_settings.sensitivity)
+        if (typeof project.slice_settings?.minDistance === "number") setMinDistance(project.slice_settings.minDistance)
+        setAuditionEnabled(!!project.slice_settings?.auditionEnabled)
+        if (project.playback_config?.volume) setVolume(project.playback_config.volume)
+        if (typeof project.playback_config?.useOriginalAudio === "boolean") setUseOriginalAudio(project.playback_config.useOriginalAudio)
+        if (project.fx_chains) setSliceFx(project.fx_chains)
+        if (project.notes) setNotes(project.notes)
+
+        if (sliceRows && sliceRows.length > 0) {
+          const loadedSlices = sliceRows.map((s) => ({
+            id:
+              s.id ||
+              (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `slice-${Date.now().toString(36)}`),
+            start: Number(s.start_time),
+            end: Number(s.end_time),
+            type: s.type || "perc",
+            name: s.name || "",
+            selected: false,
+            fadeIn: s.fade_in_ms ?? 0,
+            fadeOut: s.fade_out_ms ?? 0,
+            fadeInShape: 0,
+            fadeOutShape: 0,
+            volume: (s.metadata as any)?.volume ?? 1,
+          }))
+          setSlices(loadedSlices)
+          setSelectedSliceId(loadedSlices[0]?.id ?? null)
+        }
+
+        toast({
+          title: "Project loaded",
+          description: "Continue editing your saved session.",
+        })
+      } catch (err) {
+        console.error(err)
+        toast({
+          title: "Failed to load project",
+          description: err instanceof Error ? err.message : "Could not load project",
+          variant: "destructive",
+        })
+      } finally {
+        setIsProcessing(false)
+      }
+    }
+
+    void loadProject()
+  }, [searchParams, user, projectId, toast])
+
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -870,9 +960,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       setShowExtractionDialog(true)
 
       // Always use the extraction function which calls the secure API route
-      const result = await extractDrumsWithLalalAI(audioFile, audioContext.current, (progress: ExtractionProgress) => {
-        setExtractionProgress(progress)
-      })
+      const result = await extractDrumsWithLalalAI(
+        audioFile,
+        audioContext.current,
+        (progress: ExtractionProgress) => {
+          setExtractionProgress(progress)
+        },
+        { userId: user?.id, projectId: projectId || undefined, kitId: kitId || undefined },
+      )
 
       if (result.success && result.audioBuffer) {
         // Force using extracted stem buffer
@@ -1211,47 +1306,155 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     void playSlice(targetSlice.id)
   }
 
-  const handleSaveKit = async () => {
-    if (slices.length === 0) {
+  const buildProjectPayload = () => {
+    const fallbackName = `${kitPrefix}_${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+    const nameToPersist = kitName.trim() || fallbackName
+    return {
+      projectId: projectId || undefined,
+      title: nameToPersist,
+      sourceAudioPath: uploadedFileInfo?.url,
+      sourceDuration: audioBuffer?.duration,
+      sliceSettings: {
+        sensitivity,
+        minDistance,
+        trimSelection,
+        gridLayout,
+        auditionEnabled,
+      },
+      playbackConfig: {
+        volume,
+        useOriginalAudio,
+      },
+      fxChains: sliceFx,
+      notes,
+      slices: slices.map((s) => ({
+        id: s.id, // keep client id for now; backend will generate if missing
+        name: s.name,
+        type: s.type,
+        start_time: s.start,
+        end_time: s.end,
+        fade_in_ms: s.fadeIn,
+        fade_out_ms: s.fadeOut,
+        metadata: {},
+      })),
+    }
+  }
+
+  const saveProject = async () => {
+    setIsSavingProject(true)
+    try {
+      const payload = buildProjectPayload()
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      })
+      const text = await response.text()
+      console.log("Save project response", response.status, text)
+      const json = text ? JSON.parse(text) : {}
+      if (!response.ok) {
+        throw new Error(json.error || text || "Failed to save project")
+      }
+      const data = json
+      const newId = data.projectId as string
+      setProjectId(newId)
+      return newId
+    } finally {
+      setIsSavingProject(false)
+    }
+  }
+
+  const handleSaveProject = async () => {
+    if (!user) {
       toast({
-        title: "Nothing to save",
-        description: "Create at least one slice before saving to your library.",
+        title: "Login required",
+        description: "Please sign in to save your project.",
         variant: "destructive",
       })
       return
     }
-
-    setIsSavingKit(true)
-
     try {
-      const kitStatus: DrumKit["status"] = slices.length >= 8 ? "finished" : "draft"
-      const fallbackName = `${kitPrefix}_${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-      const nameToPersist = kitName.trim() || fallbackName
-      const projectId =
-        typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `proj-${Date.now().toString(36)}`
-      const kit: DrumKit = {
-        id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}`,
-        projectId,
-        name: nameToPersist,
-        sliceCount: slices.length,
-        status: kitStatus,
-        lastModified: new Date(),
-        downloads: 0,
-        likes: 0,
-        visibility: "private",
-        price: 0,
-      }
-
-      saveDrumKit(kit)
+      const id = await saveProject()
       toast({
-        title: kitStatus === "finished" ? "Kit saved" : "Draft saved",
-        description: `${nameToPersist} was added to My Library.`,
+        title: "Project saved",
+        description: "Find it later under My Projects.",
       })
+      return id
     } catch (error) {
-      console.error("Failed to save kit:", error)
+      console.error(error)
       toast({
         title: "Save failed",
-        description: "Could not add this kit to My Library. Please try again.",
+        description: "Could not save project. Please try again.",
+        variant: "destructive",
+      })
+      return null
+    }
+  }
+
+  const handleSaveAsProject = async () => {
+    // Reset projectId to force creation of a new project
+    setProjectId(null)
+    await handleSaveProject()
+  }
+
+  const handleSaveToLibrary = async () => {
+    if (!user) {
+      toast({
+        title: "Login required",
+        description: "Please sign in to save to library.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (slices.length === 0) {
+      toast({
+        title: "Nothing to save",
+        description: "Create at least one slice before saving.",
+        variant: "destructive",
+      })
+      return
+    }
+    setIsSavingKit(true)
+    try {
+      const ensuredProjectId = projectId || (await saveProject())
+      if (!ensuredProjectId) throw new Error("Project save failed")
+
+      const fallbackName = `${kitPrefix}_${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+      const nameToPersist = kitName.trim() || fallbackName
+
+      const response = await fetch("/api/library", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: ensuredProjectId,
+          kitId: kitId || undefined,
+          name: nameToPersist,
+          description: notes || "",
+          visibility: "private",
+        }),
+      })
+
+      const text = await response.text()
+      console.log("Save library response", response.status, text)
+      const json = text ? JSON.parse(text) : {}
+      if (!response.ok) {
+        throw new Error(json.error || text || "Failed to save to library")
+      }
+
+      const data = json
+      if (data.kitId) setKitId(data.kitId)
+
+      toast({
+        title: "Saved to library",
+        description: "Project saved and kit added to My Library.",
+      })
+    } catch (error) {
+      console.error(error)
+      toast({
+        title: "Save failed",
+        description: "Could not save to library. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -2697,12 +2900,30 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                     Detect & Slice
                   </Button>
                   <Button
-                    onClick={handleSaveKit}
-                    disabled={isSavingKit || slices.length === 0}
+                    onClick={handleSaveProject}
+                    disabled={isSavingProject || slices.length === 0}
                     variant="outline"
                     className="h-11 rounded-full border border-white/20 bg-transparent px-6 text-white/80 hover:text-white disabled:opacity-50"
                   >
-                    {isSavingKit ? "Saving..." : "Save to library"}
+                    {isSavingProject ? "Saving..." : "Save"}
+                  </Button>
+                  {projectId && (
+                    <Button
+                      onClick={handleSaveAsProject}
+                      disabled={isSavingProject || slices.length === 0}
+                      variant="outline"
+                      className="h-11 rounded-full border border-white/20 bg-transparent px-6 text-white/80 hover:text-white disabled:opacity-50"
+                    >
+                      Save As…
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleSaveToLibrary}
+                    disabled={isSavingKit || slices.length === 0}
+                    variant="default"
+                    className="h-11 rounded-full bg-gradient-to-r from-[#f5d97a] via-[#f0b942] to-[#f0a53b] px-6 text-black hover:brightness-110 disabled:opacity-50"
+                  >
+                    {isSavingKit ? "Saving..." : "Save to Library"}
                   </Button>
                   <Button
                     onClick={exportSlices}

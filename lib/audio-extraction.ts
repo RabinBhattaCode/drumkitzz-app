@@ -33,16 +33,40 @@ function normalizeStem(stem: LalalStem) {
   return stem
 }
 
+type ExtractOptions = {
+  userId?: string
+  projectId?: string
+  kitId?: string
+}
+
 /**
- * Extract drums from audio using Demucs AI via Replicate API
- * This is the recommended method for production use
+ * Extract drums from audio using Demucs AI via Replicate API (or Lalal backend)
  */
 export async function extractDrumsWithReplicate(
   audioFile: File,
   audioContext: AudioContext,
-  stem: LalalStem = "drum",
-  onProgress?: (progress: ExtractionProgress) => void,
+  stemOrProgress?: LalalStem | ((progress: ExtractionProgress) => void),
+  onProgressOrOptions?: ((progress: ExtractionProgress) => void) | ExtractOptions,
+  maybeOptions?: ExtractOptions,
 ): Promise<ExtractionResult> {
+  // Backward-compatible args parsing
+  const stem: LalalStem =
+    typeof stemOrProgress === "string" && LALAL_ALLOWED_STEMS.includes(stemOrProgress as LalalStem)
+      ? (stemOrProgress as LalalStem)
+      : "drum"
+  const onProgress =
+    typeof stemOrProgress === "function"
+      ? stemOrProgress
+      : typeof onProgressOrOptions === "function"
+        ? onProgressOrOptions
+        : undefined
+  const options: ExtractOptions =
+    (typeof onProgressOrOptions === "object" && onProgressOrOptions !== null
+      ? onProgressOrOptions
+      : typeof maybeOptions === "object" && maybeOptions !== null
+        ? maybeOptions
+        : {}) ?? {}
+
   try {
     // Step 1: Upload audio file
     onProgress?.({
@@ -55,6 +79,9 @@ export async function extractDrumsWithReplicate(
     uploadFormData.append("audio", audioFile)
     uploadFormData.append("action", "upload")
     uploadFormData.append("stem", stem)
+    if (options.userId) uploadFormData.append("userId", options.userId)
+    if (options.projectId) uploadFormData.append("projectId", options.projectId)
+    if (options.kitId) uploadFormData.append("kitId", options.kitId)
 
     const uploadResponse = await fetch("/api/extract-drums", {
       method: "POST",
@@ -89,7 +116,7 @@ export async function extractDrumsWithReplicate(
       const checkFormData = new FormData()
       checkFormData.append("action", "check")
       checkFormData.append("predictionId", predictionId)
-       // preserve the requested stem so the API can normalize its payload shape
+      // preserve the requested stem so the API can normalize its payload shape
       checkFormData.append("stem", stem)
 
       const checkResponse = await fetch("/api/extract-drums", {
@@ -102,7 +129,11 @@ export async function extractDrumsWithReplicate(
       }
 
       const checkData = await checkResponse.json()
-      const maybeStemUrl = checkData.output?.stemUrl || checkData.output?.[normalizeStem(stem)] || checkData.output?.drums
+      const maybeStemUrl =
+        checkData.output?.supabaseUploads?.[0]?.signedUrl ||
+        checkData.output?.stemUrl ||
+        checkData.output?.[normalizeStem(stem)] ||
+        checkData.output?.drums
 
       if (checkData.status === "succeeded" && maybeStemUrl) {
         stemUrl = maybeStemUrl

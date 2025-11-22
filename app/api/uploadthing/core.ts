@@ -2,8 +2,16 @@ import { createUploadthing, type FileRouter } from "uploadthing/next"
 
 const f = createUploadthing()
 
+// Allow MP3 + WAV uploads
+const audioConfig = {
+  "audio/mpeg": { maxFileSize: "32MB" },
+  "audio/wav": { maxFileSize: "32MB" },
+  "audio/x-wav": { maxFileSize: "32MB" },
+  "audio/wave": { maxFileSize: "32MB" },
+} as const
+
 export const audioFileRouter = {
-  kitAudio: f({ "audio/mpeg": { maxFileSize: "32MB" } })
+  kitAudio: f(audioConfig)
     .middleware(async () => {
       // TODO: replace with Supabase auth lookup (Phase 1)
       return {
