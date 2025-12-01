@@ -10,7 +10,24 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Slider } from "@/components/ui/slider"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Upload, Mic, Play, Pause, Square, Minus, Plus, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, ChevronDown, Trash, Settings } from "lucide-react"
+import {
+  Upload,
+  Mic,
+  Play,
+  Pause,
+  Square,
+  Minus,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  ChevronDown,
+  Trash,
+  Settings,
+  RotateCcw,
+  RotateCw,
+} from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { YouTubeExtractor } from "@/app/components/youtube-extractor"
 import { SliceWaveform } from "@/app/components/slice-waveform"
@@ -72,6 +89,61 @@ const SLICE_ACCENT_COLORS: Record<string, string> = {
   bass: "#6fd0c0",
 }
 
+const dbToGain = (db: number) => Math.pow(10, db / 20)
+
+const createEqFilters = (ctx: AudioContext, fx: SliceFxSettings["eq"]) => {
+  if (!fx.active) return []
+  return fx.bands.map((band) => {
+    const filter = ctx.createBiquadFilter()
+    filter.frequency.value = band.freq
+    filter.gain.value = band.gain
+    filter.Q.value = band.q
+    filter.type =
+      band.type === "low_shelf" ? "lowshelf" : band.type === "high_shelf" ? "highshelf" : "peaking"
+    return filter
+  })
+}
+
+const createCompressor = (ctx: AudioContext, fx: SliceFxSettings["comp"]) => {
+  if (!fx.active) return null
+  const comp = ctx.createDynamicsCompressor()
+  comp.threshold.value = fx.threshold
+  comp.ratio.value = fx.ratio
+  comp.attack.value = fx.attack / 1000
+  comp.release.value = fx.release / 1000
+  comp.knee.value = 6
+  const makeup = ctx.createGain()
+  makeup.gain.value = dbToGain(fx.makeup)
+  comp.connect(makeup)
+  return { input: comp, output: makeup }
+}
+
+const createColor = (ctx: AudioContext, fx: SliceFxSettings["color"]) => {
+  if (!fx.active) return null
+  const shaper = ctx.createWaveShaper()
+  const drive = Math.max(0, fx.drive)
+  const amount = Math.min(1, drive / 24)
+  const samples = 2048
+  const curve = new Float32Array(samples)
+  for (let i = 0; i < samples; i++) {
+    const x = (i / (samples - 1)) * 2 - 1
+    const strength = fx.mode === "tube" ? 1.5 : fx.mode === "tape" ? 1.2 : 2
+    curve[i] = Math.tanh(strength * amount * x)
+  }
+  shaper.curve = curve
+  shaper.oversample = "4x"
+
+  const wetGain = ctx.createGain()
+  wetGain.gain.value = fx.mix / 100
+  const dryGain = ctx.createGain()
+  dryGain.gain.value = 1 - wetGain.gain.value
+
+  const postGain = ctx.createGain()
+  postGain.gain.value = dbToGain(fx.output)
+
+  return { shaper, wetGain, dryGain, postGain }
+}
+
 const AUDITION_KEY_LAYOUT = [
   ["r", "t", "y", "u", "i"],
   ["d", "f", "g", "h", "j"],
@@ -85,8 +157,23 @@ type DrumSlicerProProps = {
 
 type PendingAudioSource = "upload" | "record" | "youtube"
 
+type Slice = {
+  id: string
+  start: number
+  end: number
+  type: string
+  name: string
+  selected: boolean
+  fadeIn: number
+  fadeOut: number
+  fadeInShape: number
+  fadeOutShape: number
+  volume?: number
+}
+
 export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProps) {
   const isModern = variant === "modern"
+  const BUILD_TAG = "UI-v2.2"
   // Auth state
   const { isAuthenticated, isLoading: authLoading } = useAuth()
   const router = useRouter()
@@ -127,26 +214,17 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [pendingAudioSource, setPendingAudioSource] = useState<PendingAudioSource | null>(null)
 
   // Slicing state
-  const [slices, setSlices] = useState<
-    Array<{
-      id: string
-      start: number
-      end: number
-      type: string
-      name: string
-      selected: boolean
-      fadeIn: number
-      fadeOut: number
-      fadeInShape: number
-      fadeOutShape: number
-      volume?: number
-    }>
-  >([])
+  const [slices, setSlices] = useState<Slice[]>([])
   const [sliceFx, setSliceFx] = useState<Record<string, SliceFxSettings>>({})
   const [potentialSlices, setPotentialSlices] = useState<Array<number>>([])
   const [selectedSliceId, setSelectedSliceId] = useState<string | null>(null)
   const [isCreatingSlice, setIsCreatingSlice] = useState(false)
   const [newSliceStart, setNewSliceStart] = useState<number | null>(null)
+  const [sliceHistory, setSliceHistory] = useState<{ past: Slice[][]; future: Slice[][] }>({
+    past: [],
+    future: [],
+  })
+  const hasAutoDetectedRef = useRef(false)
 
   // Add state for individual slice zoom levels and scroll positions
   const [sliceZoomLevels, setSliceZoomLevels] = useState<Record<string, number>>({})
@@ -182,6 +260,58 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [projectId, setProjectId] = useState<string | null>(null)
   const [kitId, setKitId] = useState<string | null>(null)
   const [isSavingProject, setIsSavingProject] = useState(false)
+
+  const MAX_SLICE_HISTORY = 50
+  const setSlicesWithHistory = (
+    nextSlicesOrUpdater: Slice[] | ((prev: Slice[]) => Slice[]),
+    trackHistory = true,
+  ) => {
+    setSlices((current) => {
+      const next = typeof nextSlicesOrUpdater === "function" ? nextSlicesOrUpdater(current) : nextSlicesOrUpdater
+
+      if (trackHistory) {
+        setSliceHistory((history) => {
+          const past = [...history.past, current]
+          return { past: past.slice(-MAX_SLICE_HISTORY), future: [] }
+        })
+      }
+
+      return next
+    })
+  }
+
+  const undoSlices = () => {
+    setSliceHistory((history) => {
+      if (history.past.length === 0) return history
+      const previous = history.past[history.past.length - 1]
+      const newPast = history.past.slice(0, -1)
+      const newFuture = [slices, ...history.future]
+      setSlices(previous)
+      return { past: newPast, future: newFuture }
+    })
+  }
+
+  const redoSlices = () => {
+    setSliceHistory((history) => {
+      if (history.future.length === 0) return history
+      const next = history.future[0]
+      const remainingFuture = history.future.slice(1)
+      const newPast = [...history.past, slices].slice(-MAX_SLICE_HISTORY)
+      setSlices(next)
+      return { past: newPast, future: remainingFuture }
+    })
+  }
+
+  const resetSliceHistory = () => setSliceHistory({ past: [], future: [] })
+
+  const clearSlices = (trackHistory = true) => {
+    setSlicesWithHistory([], trackHistory)
+    setSelectedSliceId(null)
+  }
+
+  const canUndo = sliceHistory.past.length > 0
+  const canRedo = sliceHistory.future.length > 0
+  const hasSlices = slices.length > 0
 
   // Ensure each slice has FX defaults
   useEffect(() => {
@@ -234,6 +364,33 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     const totalWidth = rect.width
     const timePosition = (x / totalWidth) * audioBuffer.duration
     return timePosition
+  }
+
+  const shouldApplyLowCut = (sliceType: string | undefined) => {
+    return !(sliceType || "").toLowerCase().includes("kick")
+  }
+
+  // Simple single-pole high-pass (low cut) to tame sub/bass for non-kick slices
+  const applyLowCut300Hz = (buffer: AudioBuffer, sliceType: string | undefined) => {
+    if (!shouldApplyLowCut(sliceType)) return
+    const cutoff = 300
+    const sampleRate = buffer.sampleRate
+    const rc = 1 / (2 * Math.PI * cutoff)
+    const dt = 1 / sampleRate
+    const alpha = rc / (rc + dt)
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const data = buffer.getChannelData(channel)
+      let prevX = data[0] || 0
+      let prevY = data[0] || 0
+      for (let i = 0; i < data.length; i++) {
+        const x = data[i]
+        const y = alpha * (prevY + x - prevX)
+        data[i] = y
+        prevX = x
+        prevY = y
+      }
+    }
   }
 
   // Initialize audio context with user interaction
@@ -421,7 +578,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     if (useOriginalAudio && originalAudioBuffer) {
       setAudioBuffer(originalAudioBuffer)
       // Reset slices when switching to original audio
-      setSlices([])
+      clearSlices(false)
+      resetSliceHistory()
       setPotentialSlices([])
     } else if (!useOriginalAudio && originalAudioBuffer && audioBuffer !== originalAudioBuffer) {
       // If we have a drum stem, use it
@@ -469,6 +627,20 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       setSliceScrollPositions(newScrollPositions)
     }
   }, [slices])
+
+  useEffect(() => {
+    if (
+      audioBuffer &&
+      typeof (audioBuffer as any).getChannelData === "function" &&
+      slices.length === 0 &&
+      potentialSlices.length === 0 &&
+      !isProcessing &&
+      !hasAutoDetectedRef.current
+    ) {
+      hasAutoDetectedRef.current = true
+      void detectSlices(audioBuffer)
+    }
+  }, [audioBuffer, slices.length, potentialSlices.length, isProcessing])
 
   // Handle kit name input changes
   const handleKitNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -680,12 +852,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     setCloudBackupStatus("idle")
     setUploadedFileInfo(null)
     void uploadOriginalFileToCloud(file)
+    hasAutoDetectedRef.current = false
 
     if (!audioContextInitialized) {
       await initializeAudioContext()
     }
 
-    setSlices([])
+    clearSlices(false)
+    resetSliceHistory()
     setPotentialSlices([])
     setSelectedSliceId(null)
 
@@ -697,7 +871,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         throw new Error("Audio context not initialized")
       }
 
-      const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer)
+      const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer.slice(0))
 
       openTrimPreview(decodedBuffer, file, "upload")
       setIsProcessing(false)
@@ -809,6 +983,13 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       return
     }
 
+    const bucketForAsset = (assetType?: string | null) => {
+      if (assetType === "stem") return "stems"
+      if (assetType === "preview") return "stems"
+      if (assetType === "original") return "chops"
+      return "chops"
+    }
+
     const loadProject = async () => {
       try {
         setIsProcessing(true)
@@ -828,6 +1009,26 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
           .select("id,name,type,start_time,end_time,fade_in_ms,fade_out_ms,metadata")
           .eq("project_id", pid)
           .order("start_time", { ascending: true })
+
+        // Fetch assets for this project (chops) and sign URLs
+        const { data: assetRows } = await supabase
+          .from("kit_assets")
+          .select("id, asset_type, storage_path")
+          .eq("project_id", pid)
+          .eq("owner_id", user.id)
+
+        const signedAssets: Array<{ id: string; asset_type: string | null; storage_path: string; signedUrl?: string }> = []
+        if (assetRows && assetRows.length > 0) {
+          for (const a of assetRows) {
+            const bucket = bucketForAsset(a.asset_type)
+            try {
+              const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(a.storage_path, 60 * 60)
+              signedAssets.push({ ...a, signedUrl: signed?.signedUrl })
+            } catch {
+              signedAssets.push({ ...a })
+            }
+          }
+        }
 
         setProjectId(project.id)
         if (project.title) setKitName(project.title)
@@ -857,8 +1058,30 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
             fadeOutShape: 0,
             volume: (s.metadata as any)?.volume ?? 1,
           }))
-          setSlices(loadedSlices)
+          resetSliceHistory()
+          setSlicesWithHistory(loadedSlices, false)
           setSelectedSliceId(loadedSlices[0]?.id ?? null)
+        }
+
+        // Pick an audio URL to decode (project source or first signed chop)
+        const candidateUrl = project.source_audio_path || signedAssets.find((a) => a.signedUrl)?.signedUrl
+        if (candidateUrl) {
+          if (!audioContextInitialized) {
+            await initializeAudioContext({ showToast: false })
+          }
+          if (audioContext.current) {
+            try {
+              const res = await fetch(candidateUrl)
+              if (res.ok) {
+                const arrayBuffer = await res.arrayBuffer()
+                const decoded = await audioContext.current.decodeAudioData(arrayBuffer.slice(0))
+                setAudioBuffer(decoded)
+                setOriginalAudioBuffer(decoded)
+              }
+            } catch (err) {
+              console.warn("Failed to load project audio", err)
+            }
+          }
         }
 
         toast({
@@ -907,6 +1130,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const handleStartOver = () => {
     stopPreviewPlayback()
     setShowTrimPreview(false)
+    hasAutoDetectedRef.current = false
     setPendingAudioBuffer(null)
     setPendingAudioFile(null)
     setUploadedFileInfo(null)
@@ -932,12 +1156,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const handleLoadNewAudio = () => {
     stopPlayback()
     stopPreviewPlayback()
+    hasAutoDetectedRef.current = false
     setAudioBuffer(null)
     setOriginalAudioBuffer(null)
     setPendingAudioBuffer(null)
     setPendingAudioFile(null)
     setPendingAudioSource(null)
-    setSlices([])
+    clearSlices(false)
+    resetSliceHistory()
     setPotentialSlices([])
     setSelectedSliceId(null)
     setDetectedOutputs([])
@@ -1046,10 +1272,11 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
             throw new Error("Audio context not initialized")
           }
 
-          const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer)
+          const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer.slice(0))
 
           const file = new File([blob], "recording.webm", { type: "audio/webm" })
-          setSlices([])
+          clearSlices(false)
+          resetSliceHistory()
           setPotentialSlices([])
           setSelectedSliceId(null)
           openTrimPreview(decodedBuffer, file, "record")
@@ -1174,7 +1401,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   // Detect slices based on transients
   const detectSlices = async (bufferArg?: AudioBuffer) => {
     const buffer = bufferArg ?? audioBuffer
-    if (!buffer) return
+    if (!buffer || typeof (buffer as any).getChannelData !== "function" || buffer.duration === 0) {
+      toast({
+        title: "No audio",
+        description: "Load audio before detecting slices.",
+        variant: "destructive",
+      })
+      return
+    }
 
     // Ensure audio context is initialized
     if (!audioContextInitialized) {
@@ -1224,7 +1458,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         }
       })
 
-      setSlices(newSlices)
+      setSlicesWithHistory(newSlices)
       renumberSlicesByType(newSlices)
       // Switch to extracted view after detection
       setIsProcessing(false)
@@ -1236,9 +1470,10 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     } catch (error) {
       console.error("Error detecting slices:", error)
       setIsProcessing(false)
+      hasAutoDetectedRef.current = false
       toast({
         title: "Processing error",
-        description: "An error occurred while processing the audio.",
+        description: error instanceof Error ? error.message : "An error occurred while processing the audio.",
         variant: "destructive",
       })
     }
@@ -1678,17 +1913,48 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
     // Create a gain node for this slice
     const sliceGainNode = audioContext.current.createGain()
-    // CRITICAL FOR MOBILE: Ensure volume is actually set and audible
-    const effectiveVolume = isMuted ? 0 : Math.max(volume, 0.5) // Ensure minimum 0.5 volume for testing
+    const sliceFxSettings = sliceFx[slice.id] || defaultFxSettings()
+    const fxGain = sliceFxSettings.volume.active ? dbToGain(sliceFxSettings.volume.gain) : 1
+    const baseVolume = isMuted ? 0 : volume
+    const effectiveVolume = Math.max(0, baseVolume * fxGain)
     sliceGainNode.gain.value = effectiveVolume
 
     console.log('[Audio] Created source node and gain node, volume:', volume, 'effective volume:', effectiveVolume, 'muted:', isMuted)
     console.log('[Audio] Gain value set to:', sliceGainNode.gain.value)
 
+    // Build FX chain for this slice
+    let lastNode: AudioNode = sourceNode.current
+
+    // EQ
+    const eqNodes = createEqFilters(audioContext.current, sliceFxSettings.eq)
+    eqNodes.forEach((node) => {
+      lastNode.connect(node)
+      lastNode = node
+    })
+
+    // Compressor
+    const comp = createCompressor(audioContext.current, sliceFxSettings.comp)
+    if (comp) {
+      lastNode.connect(comp.input)
+      lastNode = comp.output
+    }
+
+    // Color (saturation with mix)
+    const color = createColor(audioContext.current, sliceFxSettings.color)
+    if (color) {
+      lastNode.connect(color.shaper)
+      lastNode.connect(color.dryGain)
+      color.shaper.connect(color.wetGain)
+      const mixMerge = audioContext.current.createGain()
+      color.dryGain.connect(mixMerge)
+      color.wetGain.connect(mixMerge)
+      mixMerge.connect(color.postGain)
+      lastNode = color.postGain
+    }
+
     // CRITICAL FOR MOBILE: Connect audio graph explicitly
-    // Mobile browsers require explicit connection to destination
     try {
-      sourceNode.current.connect(sliceGainNode)
+      lastNode.connect(sliceGainNode)
       sliceGainNode.connect(audioContext.current.destination)
       console.log('[Audio] Audio nodes connected to destination successfully')
     } catch (error) {
@@ -1736,6 +2002,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
           sliceData[i] = sample
         }
       }
+
+      applyLowCut300Hz(sliceBuffer, slice.type)
 
       // Set the buffer and start playback
       if (sourceNode.current) {
@@ -1865,12 +2133,12 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     return bufferToWav(buffer) // Fallback to WAV for this demo
   }
 
-  const generateMidiFile = (slices: typeof slices): Blob => {
+  const generateMidiFile = (slices: Slice[]): Blob => {
     // Simplified MIDI generation
     return new Blob(["MIDI data placeholder"], { type: "audio/midi" })
   }
 
-  const generateMetadataFile = (slices: typeof slices): string => {
+  const generateMetadataFile = (slices: Slice[]): string => {
     let metadata = `${kitName || "Untitled Drum Kit"} - Metadata\n`
     metadata += `====================\n\n`
     metadata += `Slices: ${slices.length}\n\n`
@@ -1913,7 +2181,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       const zip = new JSZip()
 
       // Group slices by type
-      const slicesByType: Record<string, typeof slices> = {}
+      const slicesByType: Record<string, Slice[]> = {}
       selectedSlices.forEach((slice) => {
         if (!slicesByType[slice.type]) {
           slicesByType[slice.type] = []
@@ -1966,6 +2234,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
               sliceData[i] = sample
             }
           }
+
+          applyLowCut300Hz(sliceBuffer, slice.type)
 
           // Convert buffer to audio format
           const audioBlob = exportFormat === "wav" ? await bufferToWav(sliceBuffer) : await bufferToMp3(sliceBuffer)
@@ -2025,7 +2295,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     }
   }
 
-  const generateTypeMetadataFile = (type: string, slices: typeof slices): string => {
+  const generateTypeMetadataFile = (type: string, slices: Slice[]): string => {
     let metadata = `${kitName || "Untitled Drum Kit"} - ${capitalizeFirstLetter(type)} Samples\n`
     metadata += `====================\n\n`
     metadata += `${type.toUpperCase()} Slices: ${slices.length}\n\n`
@@ -2138,12 +2408,12 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     }
 
     // Add the new slice to the slices array
-    setSlices([...slices, newSlice])
+    setSlicesWithHistory([...slices, newSlice])
     return true
   }
 
   // Update slice properties
-  const updateSlice = (sliceId: string, updates: Partial<(typeof slices)[0]>) => {
+  const updateSlice = (sliceId: string, updates: Partial<Slice>) => {
     // Find the slice to update
     const sliceIndex = slices.findIndex((slice) => slice.id === sliceId)
     if (sliceIndex === -1) return
@@ -2164,20 +2434,15 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       renumberSlicesByType(updatedSlices)
 
       // Set the updated slices
-      setSlices(updatedSlices)
+      setSlicesWithHistory(updatedSlices)
     } else {
       // For non-type updates, just update the slice directly
-      setSlices(slices.map((slice) => (slice.id === sliceId ? { ...slice, ...updates } : slice)))
+      setSlicesWithHistory(slices.map((slice) => (slice.id === sliceId ? { ...slice, ...updates } : slice)))
     }
   }
 
   // Generate a name for a slice based on type and existing slices
-  const generateSliceName = (
-    prefix: string,
-    type: string,
-    allSlices: typeof slices,
-    currentSliceId?: string,
-  ): string => {
+  const generateSliceName = (prefix: string, type: string, allSlices: Slice[], currentSliceId?: string): string => {
     // Get all slices of this type, excluding the current slice if provided
     const slicesOfType = allSlices.filter(
       (slice) => slice.type === type && (currentSliceId === undefined || slice.id !== currentSliceId),
@@ -2201,9 +2466,9 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   }
 
   // Renumber all slices by type to ensure sequential numbering
-  const renumberSlicesByType = (slices: typeof slices): void => {
+  const renumberSlicesByType = (slices: Slice[]): void => {
     // Group slices by type
-    const slicesByType: Record<string, typeof slices> = {}
+    const slicesByType: Record<string, Slice[]> = {}
 
     slices.forEach((slice) => {
       if (!slicesByType[slice.type]) {
@@ -2231,7 +2496,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     // Simply remove the slice without modifying adjacent slices
     const updatedSlices = [...slices]
     updatedSlices.splice(sliceIndex, 1)
-    setSlices(updatedSlices)
+    setSlicesWithHistory(updatedSlices)
     setSliceFx((prev) => {
       const next = { ...prev }
       delete next[sliceId]
@@ -2322,7 +2587,11 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
   // Render the landing page or the full application based on whether an audio file is loaded
   return (
-    <main className="flex flex-col items-center justify-center p-2 md:p-8 max-w-full overflow-x-hidden">
+    <main className="flex flex-col items-center justify-center p-2 md:p-8 max-w-full overflow-x-hidden" data-build-tag={BUILD_TAG}>
+      <div className="mb-3 w-full max-w-6xl flex items-center justify-between rounded-xl border border-amber-200/30 bg-[#140f1f] px-4 py-2 text-[11px] font-mono uppercase tracking-[0.2em] text-amber-100">
+        <span>DrumKitzz Editor</span>
+        <span>Build {BUILD_TAG} · if you don’t see this, you’re on an old bundle</span>
+      </div>
       {/* Extraction Progress Dialog */}
       <ExtractionProgressDialog
         isOpen={showExtractionDialog}
@@ -2697,9 +2966,44 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
               </div>
 
               <div className="rounded-[32px] border border-amber-200/15 bg-gradient-to-b from-[#0f0a15] to-[#050305] p-4">
-                <div className="flex items-center justify-between text-xs uppercase tracking-[0.35em] text-white/40">
-                  <span>Waveform View</span>
-                  <span>{`Zoom ${zoomLevel.toString().padStart(2, "0")}x`}</span>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-xs uppercase tracking-[0.35em] text-white/40">
+                  <div className="flex items-center gap-2">
+                    <span>Waveform View</span>
+                    <span className="rounded-full border border-amber-200/50 px-2 py-1 text-[10px] font-semibold text-amber-100">UI v2</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 rounded-full border border-white/10 text-white/80"
+                      onClick={undoSlices}
+                      disabled={!canUndo}
+                    >
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                      Undo
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 rounded-full border border-white/10 text-white/80"
+                      onClick={redoSlices}
+                      disabled={!canRedo}
+                    >
+                      <RotateCw className="mr-1 h-4 w-4" />
+                      Redo
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 rounded-full border border-amber-200/40 bg-amber-200/10 text-amber-100"
+                      onClick={() => clearSlices()}
+                      disabled={!hasSlices}
+                    >
+                      <Trash className="mr-1 h-4 w-4" />
+                      Clear Slices
+                    </Button>
+                    <span className="text-white/40 sm:ml-2">{`Zoom ${zoomLevel.toString().padStart(2, "0")}x`}</span>
+                  </div>
                 </div>
                 <div className={`mt-4 h-[220px] overflow-visible rounded-[24px] border border-white/5 ${isModern ? "p-0" : "bg-black/40"}`}>
                   {audioBuffer &&
@@ -2893,7 +3197,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <Button
-                    onClick={detectSlices}
+                    onClick={() => detectSlices()}
                     disabled={isProcessing}
                     className="h-11 rounded-full bg-gradient-to-r from-[#f5d97a] via-[#f0b942] to-[#f0a53b] px-6 text-black hover:brightness-110"
                   >
@@ -3048,7 +3352,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                     </div>
                   </div>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setSlices([])}>
+                <Button variant="outline" size="sm" onClick={() => clearSlices()}>
                   Clear All
                 </Button>
               </div>
@@ -3148,308 +3452,16 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                             <div className="flex flex-wrap items-center gap-2 ml-auto">
                               {(() => {
                                 const fx = sliceFx[slice.id] || defaultFxSettings()
-                                const sliceTypeKey = mapSliceTypeToKey(slice.type)
-                                const eqKeys = filterPresetKeys(Object.keys(EQ_PRESETS), sliceTypeKey)
-                                const compKeys = filterPresetKeys(Object.keys(COMP_PRESETS), sliceTypeKey)
-                                const colorKeys = filterPresetKeys(Object.keys(COLOR_PRESETS), sliceTypeKey)
-
-                                const toggleFx = (key: keyof SliceFxSettings) => {
-                                  const current = fx[key] as any
-                                  updateSliceFx(slice.id, { [key]: { ...current, active: !current.active } } as any)
-                                }
-
-                                const FxButton = ({
-                                  label,
-                                  active,
-                                  onClick,
-                                }: { label: string; active: boolean; onClick: () => void }) => (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="ghost"
-                                    className={cn(
-                                      "rounded-full border px-3 text-[11px]",
-                                      active
-                                        ? "border-amber-300/70 bg-amber-200/10 text-white"
-                                        : "border-white/15 bg-white/5 text-white/70 hover:border-amber-200/60",
-                                    )}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      onClick()
-                                    }}
-                                  >
-                                    {label}
-                                  </Button>
-                                )
-
-                                const FxSettings = ({
-                                  label,
-                                  children,
-                                }: { label: string; children: React.ReactNode }) => (
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button
-                                        type="button"
-                                        size="icon"
-                                        variant="ghost"
-                                        className="h-8 w-8 rounded-full border border-white/10 bg-white/5 text-white/80 hover:border-amber-200/60"
-                                        onClick={(e) => e.stopPropagation()}
-                                        aria-label={`${label} settings`}
-                                      >
-                                        <Settings className="h-4 w-4" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent className="w-80 space-y-3 p-3">
-                                      {children}
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )
-
                                 return (
-                                  <>
-                                    <div className="flex items-center gap-1">
-                                      <FxButton label="Vol" active={fx.volume.active} onClick={() => toggleFx("volume")} />
-                                      <FxSettings label="Volume">
-                                        <DropdownMenuLabel className="text-xs text-white/60">Volume</DropdownMenuLabel>
-                                        <div className="space-y-2">
-                                          <div className="flex items-center justify-between text-xs text-white/70">
-                                            <span>Gain</span>
-                                            <span className="font-mono">{fx.volume.gain.toFixed(1)} dB</span>
-                                          </div>
-                                          <Slider
-                                            value={[fx.volume.gain]}
-                                            min={-24}
-                                            max={12}
-                                            step={0.5}
-                                            onValueChange={(v) => updateSliceFx(slice.id, { volume: { ...fx.volume, active: true, gain: v[0] } })}
-                                          />
-                                        </div>
-                                      </FxSettings>
-                                    </div>
-
-                                    <div className="flex items-center gap-1">
-                                      <FxButton label="EQ" active={fx.eq.active} onClick={() => toggleFx("eq")} />
-                                      <FxSettings label="Equaliser">
-                                        <DropdownMenuLabel className="text-xs text-white/60">EQ Presets</DropdownMenuLabel>
-                                        {eqKeys.map((key) => {
-                                          const preset = EQ_PRESETS[key]
-                                          if (!preset) return null
-                                          return (
-                                            <DropdownMenuItem
-                                              key={key}
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                applyEqPreset(slice.id, key)
-                                              }}
-                                              className="text-sm"
-                                            >
-                                              {preset.label}
-                                            </DropdownMenuItem>
-                                          )
-                                        })}
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuLabel className="text-xs text-white/60">Bands</DropdownMenuLabel>
-                                        <div className="space-y-2">
-                                          {fx.eq.bands.map((band, idx) => (
-                                            <div key={`${slice.id}-band-${idx}`} className="space-y-1 rounded-lg bg-white/5 p-2">
-                                              <div className="flex items-center justify-between text-[11px] text-white/60">
-                                                <span>
-                                                  Band {idx + 1} • {band.type.replace("_", " ")} • {Math.round(band.freq)} Hz
-                                                </span>
-                                                <span className="font-mono text-white/80">
-                                                  {band.gain > 0 ? "+" : ""}
-                                                  {band.gain.toFixed(1)} dB
-                                                </span>
-                                              </div>
-                                              <Slider
-                                                value={[band.gain]}
-                                                min={-12}
-                                                max={12}
-                                                step={0.5}
-                                                onValueChange={(v) => {
-                                                  const bands = [...fx.eq.bands]
-                                                  bands[idx] = { ...bands[idx], gain: v[0] }
-                                                  updateSliceFx(slice.id, { eq: { ...fx.eq, active: true, bands } })
-                                                }}
-                                              />
-                                              <div className="flex gap-2">
-                                                <div className="flex-1">
-                                                  <div className="flex items-center justify-between text-[11px] text-white/50">
-                                                    <span>Freq</span>
-                                                    <span className="font-mono text-white/80">{Math.round(band.freq)} Hz</span>
-                                                  </div>
-                                                  <Slider
-                                                    value={[band.freq]}
-                                                    min={20}
-                                                    max={20000}
-                                                    step={10}
-                                                    onValueChange={(v) => {
-                                                      const bands = [...fx.eq.bands]
-                                                      bands[idx] = { ...bands[idx], freq: v[0] }
-                                                      updateSliceFx(slice.id, { eq: { ...fx.eq, active: true, bands } })
-                                                    }}
-                                                  />
-                                                </div>
-                                                <div className="flex-1">
-                                                  <div className="flex items-center justify-between text-[11px] text-white/50">
-                                                    <span>Q</span>
-                                                    <span className="font-mono text-white/80">{band.q.toFixed(2)}</span>
-                                                  </div>
-                                                  <Slider
-                                                    value={[band.q]}
-                                                    min={0.1}
-                                                    max={18}
-                                                    step={0.1}
-                                                    onValueChange={(v) => {
-                                                      const bands = [...fx.eq.bands]
-                                                      bands[idx] = { ...bands[idx], q: v[0] }
-                                                      updateSliceFx(slice.id, { eq: { ...fx.eq, active: true, bands } })
-                                                    }}
-                                                  />
-                                                </div>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </FxSettings>
-                                    </div>
-
-                                    <div className="flex items-center gap-1">
-                                      <FxButton label="Comp" active={fx.comp.active} onClick={() => toggleFx("comp")} />
-                                      <FxSettings label="Compressor">
-                                        <DropdownMenuLabel className="text-xs text-white/60">Compressor Presets</DropdownMenuLabel>
-                                        {compKeys.map((key) => {
-                                          const preset = COMP_PRESETS[key]
-                                          if (!preset) return null
-                                          return (
-                                            <DropdownMenuItem
-                                              key={key}
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                applyCompPreset(slice.id, key)
-                                              }}
-                                              className="text-sm"
-                                            >
-                                              {preset.label}
-                                            </DropdownMenuItem>
-                                          )
-                                        })}
-                                        <DropdownMenuSeparator />
-                                        <div className="space-y-3 text-white/80">
-                                          {[
-                                            { label: "Threshold", key: "threshold" as const, min: -30, max: 0, step: 1, suffix: " dB" },
-                                            { label: "Ratio", key: "ratio" as const, min: 1, max: 10, step: 0.1, suffix: " :1" },
-                                            { label: "Attack", key: "attack" as const, min: 1, max: 50, step: 1, suffix: " ms" },
-                                            { label: "Release", key: "release" as const, min: 20, max: 200, step: 2, suffix: " ms" },
-                                            { label: "Makeup", key: "makeup" as const, min: -6, max: 6, step: 0.5, suffix: " dB" },
-                                          ].map((field) => (
-                                            <div key={field.key} className="space-y-1">
-                                              <div className="flex items-center justify-between text-xs text-white/60">
-                                                <span>{field.label}</span>
-                                                <span className="font-mono text-white/80">
-                                                  {fx.comp[field.key].toFixed(1)}
-                                                  {field.suffix}
-                                                </span>
-                                              </div>
-                                              <Slider
-                                                value={[fx.comp[field.key]]}
-                                                min={field.min}
-                                                max={field.max}
-                                                step={field.step}
-                                                onValueChange={(v) => updateSliceFx(slice.id, { comp: { ...fx.comp, active: true, [field.key]: v[0] } })}
-                                              />
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </FxSettings>
-                                    </div>
-
-                                    <div className="flex items-center gap-1">
-                                      <FxButton label="Color" active={fx.color.active} onClick={() => toggleFx("color")} />
-                                      <FxSettings label="Colour">
-                                        <DropdownMenuLabel className="text-xs text-white/60">Saturation Presets</DropdownMenuLabel>
-                                        {colorKeys.map((key) => {
-                                          const preset = COLOR_PRESETS[key]
-                                          if (!preset) return null
-                                          return (
-                                            <DropdownMenuItem
-                                              key={key}
-                                              onClick={(e) => {
-                                                e.stopPropagation()
-                                                applyColorPreset(slice.id, key)
-                                              }}
-                                              className="text-sm"
-                                            >
-                                              {preset.label}
-                                            </DropdownMenuItem>
-                                          )
-                                        })}
-                                        <DropdownMenuSeparator />
-                                        <div className="space-y-2 text-white/80">
-                                          <div className="space-y-1">
-                                            <div className="flex items-center justify-between text-xs text-white/60">
-                                              <span>Drive</span>
-                                              <span className="font-mono text-white/80">{fx.color.drive.toFixed(1)} dB</span>
-                                            </div>
-                                            <Slider
-                                              value={[fx.color.drive]}
-                                              min={0}
-                                              max={12}
-                                              step={0.5}
-                                              onValueChange={(v) => updateSliceFx(slice.id, { color: { ...fx.color, active: true, drive: v[0] } })}
-                                            />
-                                          </div>
-                                          <div className="space-y-1">
-                                            <div className="flex items-center justify-between text-xs text-white/60">
-                                              <span>Mix</span>
-                                              <span className="font-mono text-white/80">{fx.color.mix.toFixed(0)}%</span>
-                                            </div>
-                                            <Slider
-                                              value={[fx.color.mix]}
-                                              min={0}
-                                              max={100}
-                                              step={1}
-                                              onValueChange={(v) => updateSliceFx(slice.id, { color: { ...fx.color, active: true, mix: v[0] } })}
-                                            />
-                                          </div>
-                                          <div className="space-y-1">
-                                            <div className="flex items-center justify-between text-xs text-white/60">
-                                              <span>Output</span>
-                                              <span className="font-mono text-white/80">{fx.color.output.toFixed(1)} dB</span>
-                                            </div>
-                                            <Slider
-                                              value={[fx.color.output]}
-                                              min={-6}
-                                              max={6}
-                                              step={0.5}
-                                              onValueChange={(v) => updateSliceFx(slice.id, { color: { ...fx.color, active: true, output: v[0] } })}
-                                            />
-                                          </div>
-                                          <div className="flex items-center gap-2 text-xs text-white/70">
-                                            {(["tape", "tube", "transistor"] as SaturationMode[]).map((mode) => (
-                                              <Button
-                                                key={mode}
-                                                variant="ghost"
-                                                size="sm"
-                                                className={cn(
-                                                  "rounded-full border px-2",
-                                                  fx.color.mode === mode
-                                                    ? "border-amber-300/70 bg-amber-200/10 text-white"
-                                                    : "border-white/15 bg-white/5 text-white/70 hover:border-amber-200/60",
-                                                )}
-                                                onClick={(e) => {
-                                                  e.stopPropagation()
-                                                  updateSliceFx(slice.id, { color: { ...fx.color, active: true, mode } })
-                                                }}
-                                              >
-                                                {mode}
-                                              </Button>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      </FxSettings>
-                                    </div>
-                                  </>
+                                  <SliceFxControls
+                                    sliceId={slice.id}
+                                    sliceType={slice.type}
+                                    fx={fx}
+                                    updateSliceFx={updateSliceFx}
+                                    applyEqPreset={applyEqPreset}
+                                    applyCompPreset={applyCompPreset}
+                                    applyColorPreset={applyColorPreset}
+                                  />
                                 )
                               })()}
 

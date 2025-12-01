@@ -32,6 +32,9 @@ const LALAL_ALLOWED_STEMS = [
 
 type LalalStem = (typeof LALAL_ALLOWED_STEMS)[number]
 
+const LALAL_SPLITTER = process.env.LALAL_SPLITTER || "phoenix"
+const LALAL_ENHANCED_PROCESSING = process.env.LALAL_ENHANCED_PROCESSING !== "false"
+
 function normalizeStem(stem: LalalStem) {
   if (stem === "voice" || stem === "vocals") return "vocals"
   if (stem === "drum") return "drums"
@@ -142,13 +145,15 @@ export async function POST(request: NextRequest) {
             throw new Error(uploadData.error || "Failed to upload audio to Lalal.ai")
           }
 
-          const params = [
-            {
-              id: uploadData.id,
-              stem,
-              splitter: "perseus",
-            },
-          ]
+          const splitPayload = new URLSearchParams({
+            id: uploadData.id,
+            stem,
+            splitter: LALAL_SPLITTER,
+          })
+
+          if (LALAL_ENHANCED_PROCESSING) {
+            splitPayload.append("enhanced_processing_enabled", "true")
+          }
 
           const splitResponse = await fetch(LALAL_SPLIT_ENDPOINT, {
             method: "POST",
@@ -156,11 +161,7 @@ export async function POST(request: NextRequest) {
               Authorization: `license ${lalalLicenseKey}`,
               "Content-Type": "application/x-www-form-urlencoded",
             },
-            body: new URLSearchParams({
-              id: uploadData.id,
-              stem,
-              splitter: "perseus",
-            }),
+            body: splitPayload,
           })
 
           const splitData = (await splitResponse.json()) as {
@@ -179,7 +180,7 @@ export async function POST(request: NextRequest) {
             status: "processing",
             provider: "lalal",
             taskId: splitData.task_id,
-            message: `Stem extraction started with Lalal.ai (${stem})`,
+            message: `Stem extraction started with Lalal.ai (${stem}, splitter=${LALAL_SPLITTER})`,
             stem,
           })
         } catch (error) {

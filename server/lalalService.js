@@ -1,6 +1,8 @@
 const axios = require('axios');
 
 const LALAL_API_BASE = 'https://www.lalal.ai/api';
+const DEFAULT_SPLITTER = process.env.LALAL_SPLITTER || 'phoenix';
+const ENHANCED_PROCESSING_ENABLED = process.env.LALAL_ENHANCED_PROCESSING !== 'false';
 
 /**
  * Uploads an audio file to Lalal.ai
@@ -64,8 +66,9 @@ async function splitWithLalal(fileId) {
   const params = JSON.stringify([
     {
       id: fileId,
-      splitter: 'perseus',
+      splitter: DEFAULT_SPLITTER,
       stem: 'drum',
+      enhanced_processing_enabled: ENHANCED_PROCESSING_ENABLED,
     },
   ]);
 

@@ -3,14 +3,8 @@
 import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -46,6 +40,12 @@ export function SliceFxControls({
   const eqKeys = filterPresetKeys(Object.keys(EQ_PRESETS), sliceTypeKey)
   const compKeys = filterPresetKeys(Object.keys(COMP_PRESETS), sliceTypeKey)
   const colorKeys = filterPresetKeys(Object.keys(COLOR_PRESETS), sliceTypeKey)
+  const [openPanel, setOpenPanel] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      console.info("DrumKitzz FX UI loaded (classic) - build tag UI-v2.2")
+    }
+  }, [])
 
   const toggleFx = (key: keyof SliceFxSettings) => {
     const current = fx[key] as any
@@ -72,9 +72,9 @@ export function SliceFxControls({
     </Button>
   )
 
-  const FxSettings = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
+  const FxSettings = ({ label, panelKey, children }: { label: string; panelKey: string; children: React.ReactNode }) => (
+    <Popover open={openPanel === panelKey} onOpenChange={(open) => setOpenPanel(open ? panelKey : null)} modal>
+      <PopoverTrigger asChild>
         <Button
           type="button"
           size="icon"
@@ -85,18 +85,43 @@ export function SliceFxControls({
         >
           <Settings className="h-4 w-4" />
         </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-80 space-y-3 p-3">
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={8}
+        className="w-80 max-h-[70vh] space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-[#0c0b14]/95 p-3 shadow-2xl backdrop-blur"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => {
+          e.preventDefault()
+          setOpenPanel(null)
+        }}
+      >
+        <div className="flex items-center justify-between text-xs text-white/60">
+          <span>{label}</span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-full border border-white/10 text-white/70 hover:text-white"
+            onClick={(e) => {
+              e.stopPropagation()
+              setOpenPanel(null)
+            }}
+            aria-label={`Close ${label}`}
+          >
+            ×
+          </Button>
+        </div>
         {children}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </PopoverContent>
+    </Popover>
   )
 
   return (
     <div className="flex flex-wrap items-center gap-2 ml-auto">
       <div className="flex items-center gap-1">
         <FxButton label="Vol" active={fx.volume.active} onClick={() => toggleFx("volume")} />
-        <FxSettings label="Volume">
+        <FxSettings label="Volume" panelKey={`${sliceId}-vol`}>
           <DropdownMenuLabel className="text-xs text-white/60">Volume</DropdownMenuLabel>
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-white/70">
@@ -116,7 +141,7 @@ export function SliceFxControls({
 
       <div className="flex items-center gap-1">
         <FxButton label="EQ" active={fx.eq.active} onClick={() => toggleFx("eq")} />
-        <FxSettings label="Equaliser">
+        <FxSettings label="Equaliser" panelKey={`${sliceId}-eq`}>
           <DropdownMenuLabel className="text-xs text-white/60">EQ Presets</DropdownMenuLabel>
           {eqKeys.map((key) => {
             const preset = EQ_PRESETS[key]
@@ -203,7 +228,7 @@ export function SliceFxControls({
 
       <div className="flex items-center gap-1">
         <FxButton label="Comp" active={fx.comp.active} onClick={() => toggleFx("comp")} />
-        <FxSettings label="Compressor">
+        <FxSettings label="Compressor" panelKey={`${sliceId}-comp`}>
           <DropdownMenuLabel className="text-xs text-white/60">Compressor Presets</DropdownMenuLabel>
           {compKeys.map((key) => {
             const preset = COMP_PRESETS[key]
@@ -253,7 +278,7 @@ export function SliceFxControls({
 
       <div className="flex items-center gap-1">
         <FxButton label="Color" active={fx.color.active} onClick={() => toggleFx("color")} />
-        <FxSettings label="Colour">
+        <FxSettings label="Colour" panelKey={`${sliceId}-color`}>
           <DropdownMenuLabel className="text-xs text-white/60">Saturation Presets</DropdownMenuLabel>
           {colorKeys.map((key) => {
             const preset = COLOR_PRESETS[key]

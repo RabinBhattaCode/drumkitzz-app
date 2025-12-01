@@ -15,17 +15,20 @@ export interface ExtractionResult {
   error?: string
 }
 
-type LalalStem =
-  | "drum"
-  | "bass"
-  | "vocals"
-  | "voice"
-  | "piano"
-  | "electric_guitar"
-  | "acoustic_guitar"
-  | "synthesizer"
-  | "strings"
-  | "wind"
+const LALAL_ALLOWED_STEMS = [
+  "drum",
+  "bass",
+  "vocals",
+  "voice",
+  "piano",
+  "electric_guitar",
+  "acoustic_guitar",
+  "synthesizer",
+  "strings",
+  "wind",
+] as const
+
+type LalalStem = (typeof LALAL_ALLOWED_STEMS)[number]
 
 function normalizeStem(stem: LalalStem) {
   if (stem === "voice" || stem === "vocals") return "vocals"

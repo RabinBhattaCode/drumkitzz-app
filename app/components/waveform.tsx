@@ -74,8 +74,10 @@ export function Waveform({
   const [lastClickTime, setLastClickTime] = useState(0)
   const [isScrolling, setIsScrolling] = useState(false)
   const [isDraggingCanvas, setIsDraggingCanvas] = useState(false)
+  const [isHovering, setIsHovering] = useState(false)
   // Add these new state variables to the component
   const [isDraggingScrollbar, setIsDraggingScrollbar] = useState(false)
+  const [isPointerDown, setIsPointerDown] = useState(false)
   const [scrollbarDragStart, setScrollbarDragStart] = useState<{ x: number; thumbPos: number } | null>(null)
   const [zoomLevel, setZoomLevel] = useState(propsZoomLevel || 1)
   const [isDocumentListenersAttached, setIsDocumentListenersAttached] = useState(false)
@@ -641,10 +643,21 @@ export function Waveform({
 
     setIsDragging(false)
     setActiveMarker(null)
+    setIsDraggingCanvas(false)
+    setIsDraggingScrollbar(false)
+    setIsPointerDown(false)
   }
 
   // Handle wheel event for zooming and scrolling
   const handleWheel = (e: React.WheelEvent) => {
+    const target = e.target as Node
+    const inside = containerRef.current && containerRef.current.contains(target)
+
+    // Only respond when inside the waveform/scrollbar area
+    if (!inside) return
+    // Only allow while pointer is down or actively dragging scrollbar/canvas
+    if (!isPointerDown && !isDraggingScrollbar && !isDraggingCanvas) return
+
     e.preventDefault()
 
     if (e.ctrlKey || e.metaKey) {
@@ -842,15 +855,47 @@ export function Waveform({
     }
   }, [isDraggingScrollbar, scrollbarDragStart, audioBuffer, zoomLevel, onScrollChange, isDocumentListenersAttached])
 
+  const handleMouseLeave = (e: React.MouseEvent) => {
+    handleMouseUp(e)
+    setIsHovering(false)
+    setIsDraggingCanvas(false)
+    setIsDraggingScrollbar(false)
+    setIsDragging(false)
+    setActiveMarker(null)
+    setIsPointerDown(false)
+  }
+
+  useEffect(() => {
+    const handleWindowMouseUp = () => {
+      setIsDraggingCanvas(false)
+      setIsDraggingScrollbar(false)
+      setIsDragging(false)
+      setActiveMarker(null)
+      setIsPointerDown(false)
+    }
+    window.addEventListener("mouseup", handleWindowMouseUp)
+    return () => window.removeEventListener("mouseup", handleWindowMouseUp)
+  }, [])
+
   return (
     <div
       ref={containerRef}
-      className="w-full h-full relative rounded-[24px] bg-black/30 overflow-visible"
+      className="w-full h-full relative rounded-[24px] bg-black/30 overflow-visible outline-none"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
       onWheel={handleWheel}
+      onMouseEnter={() => setIsHovering(true)}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+          e.preventDefault()
+          const step = 0.01 * (e.key === "ArrowLeft" ? -1 : 1)
+          const next = Math.max(0, Math.min(1, scrollPosition + step / Math.max(1, zoomLevel)))
+          onScrollChange(next)
+        }
+      }}
       style={{ cursor: isDraggingCanvas ? "grabbing" : "default" }}
     >
       <canvas
