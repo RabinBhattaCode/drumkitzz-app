@@ -3,6 +3,8 @@ import { z } from "zod"
 
 import { createRouteHandlerSupabaseClient } from "@/lib/supabase/server"
 
+export const runtime = "nodejs"
+
 // Basic schema for project save. Extend as your UI evolves.
 const SaveProjectSchema = z.object({
   projectId: z.string().uuid().optional(),
@@ -152,6 +154,100 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ projectId: finalProjectId, project: projectRow }, { status: 200 })
+}
+
+export async function GET(req: NextRequest) {
+  const supabase = await createRouteHandlerSupabaseClient()
+  const { data: { session }, error: authError } = await supabase.auth.getSession()
+
+  if (authError || !session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const userId = session.user.id
+
+  const url = new URL(req.url)
+  const projectId = url.searchParams.get("projectId") || url.searchParams.get("id")
+
+  if (!projectId) {
+    return NextResponse.json({ error: "projectId required" }, { status: 400 })
+  }
+
+  const { data: project, error: projectError } = await supabase
+    .from("kit_projects")
+    .select(
+      `
+        id,
+        owner_id,
+        title,
+        source_audio_path,
+        source_duration,
+        slice_settings,
+        playback_config,
+        fx_chains,
+        notes,
+        status,
+        linked_kit_id,
+        kit_slices (
+          id,
+          project_id,
+          kit_id,
+          name,
+          type,
+          start_time,
+          end_time,
+          fade_in_ms,
+          fade_out_ms,
+          metadata,
+          created_at
+        )
+      `,
+    )
+    .eq("id", projectId)
+    .eq("owner_id", userId)
+    .single()
+
+  if (projectError || !project) {
+    const status = projectError?.code === "PGRST116" ? 404 : 500
+    return NextResponse.json(
+      { error: projectError?.message || "Project not found" },
+      { status },
+    )
+  }
+
+  // Load project assets and sign URLs for convenience (best-effort)
+  const bucketForAsset = (assetType?: string | null) => {
+    if (assetType === "stem") return "stems"
+    if (assetType === "preview") return "stems"
+    if (assetType === "original") return "chops"
+    return "chops"
+  }
+
+  const assets: Array<{
+    id: string
+    asset_type: string | null
+    storage_path: string
+    signedUrl?: string
+  }> = []
+
+  const { data: assetRows } = await supabase
+    .from("kit_assets")
+    .select("id, asset_type, storage_path")
+    .eq("project_id", projectId)
+    .eq("owner_id", userId)
+
+  if (assetRows && assetRows.length > 0) {
+    for (const a of assetRows) {
+      const bucket = bucketForAsset(a.asset_type)
+      try {
+        const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(a.storage_path, 60 * 60)
+        assets.push({ ...a, signedUrl: signed?.signedUrl })
+      } catch {
+        assets.push({ ...a })
+      }
+    }
+  }
+
+  return NextResponse.json({ project, assets }, { status: 200 })
 }
 
 export async function DELETE(req: NextRequest) {

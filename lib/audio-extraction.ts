@@ -13,6 +13,7 @@ export interface ExtractionResult {
   success: boolean
   audioBuffer?: AudioBuffer
   error?: string
+  stemUrl?: string
 }
 
 const LALAL_ALLOWED_STEMS = [
@@ -212,6 +213,7 @@ export async function extractDrumsWithReplicate(
     return {
       success: true,
       audioBuffer: drumsBuffer,
+      stemUrl,
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error occurred"

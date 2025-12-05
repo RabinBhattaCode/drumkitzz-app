@@ -29,6 +29,7 @@ import {
   RotateCw,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { loadProject as loadProjectFromApi, saveProject as saveProjectToApi } from "@/lib/projects"
 import { YouTubeExtractor } from "@/app/components/youtube-extractor"
 import { SliceWaveform } from "@/app/components/slice-waveform"
 import { Waveform } from "@/app/components/waveform"
@@ -63,7 +64,6 @@ import {
   type SliceFxSettings,
 } from "@/components/create/drum-slicer-pro/state"
 import { SliceFxControls } from "@/components/create/drum-slicer-pro/fx-controls"
-import { createBrowserClient } from "@/lib/supabase-browser"
 
 // Define OfflineContext type
 type OfflineContext = OfflineAudioContext
@@ -212,6 +212,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   const [isUploadDragActive, setIsUploadDragActive] = useState(false)
   const [pendingAudioSource, setPendingAudioSource] = useState<PendingAudioSource | null>(null)
+  const [isProjectLoading, setIsProjectLoading] = useState(false)
 
   // Slicing state
   const [slices, setSlices] = useState<Slice[]>([])
@@ -970,7 +971,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Load project by query param
+  // Load project by query param using API helper
   useEffect(() => {
     const pid = searchParams.get("projectId")
     if (!pid || projectId === pid) return
@@ -983,67 +984,33 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       return
     }
 
-    const bucketForAsset = (assetType?: string | null) => {
-      if (assetType === "stem") return "stems"
-      if (assetType === "preview") return "stems"
-      if (assetType === "original") return "chops"
-      return "chops"
-    }
-
     const loadProject = async () => {
       try {
         setIsProcessing(true)
-        const supabase = createBrowserClient()
-        const { data: project, error } = await supabase
-          .from("kit_projects")
-          .select("id,title,source_audio_path,source_duration,slice_settings,playback_config,fx_chains,notes,status,created_at,updated_at")
-          .eq("id", pid)
-          .eq("owner_id", user.id)
-          .single()
-        if (error || !project) {
-          throw new Error(error?.message || "Project not found")
-        }
-
-        const { data: sliceRows } = await supabase
-          .from("kit_slices")
-          .select("id,name,type,start_time,end_time,fade_in_ms,fade_out_ms,metadata")
-          .eq("project_id", pid)
-          .order("start_time", { ascending: true })
-
-        // Fetch assets for this project (chops) and sign URLs
-        const { data: assetRows } = await supabase
-          .from("kit_assets")
-          .select("id, asset_type, storage_path")
-          .eq("project_id", pid)
-          .eq("owner_id", user.id)
-
-        const signedAssets: Array<{ id: string; asset_type: string | null; storage_path: string; signedUrl?: string }> = []
-        if (assetRows && assetRows.length > 0) {
-          for (const a of assetRows) {
-            const bucket = bucketForAsset(a.asset_type)
-            try {
-              const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(a.storage_path, 60 * 60)
-              signedAssets.push({ ...a, signedUrl: signed?.signedUrl })
-            } catch {
-              signedAssets.push({ ...a })
-            }
-          }
-        }
+        setIsProjectLoading(true)
+        const { project, assets } = await loadProjectFromApi(pid)
 
         setProjectId(project.id)
         if (project.title) setKitName(project.title)
-        if (project.slice_settings?.trimSelection) setTrimSelection(project.slice_settings.trimSelection as [number, number])
-        if (project.slice_settings?.gridLayout) setGridLayout(project.slice_settings.gridLayout as 1 | 2 | 3 | 4)
-        if (typeof project.slice_settings?.sensitivity === "number") setSensitivity(project.slice_settings.sensitivity)
-        if (typeof project.slice_settings?.minDistance === "number") setMinDistance(project.slice_settings.minDistance)
-        setAuditionEnabled(!!project.slice_settings?.auditionEnabled)
-        if (project.playback_config?.volume) setVolume(project.playback_config.volume)
-        if (typeof project.playback_config?.useOriginalAudio === "boolean") setUseOriginalAudio(project.playback_config.useOriginalAudio)
+
+        const sliceSettings = project.slice_settings || {}
+        const playbackConfig = project.playback_config || {}
+
+        if (sliceSettings.trimSelection) setTrimSelection(sliceSettings.trimSelection as [number, number])
+        if (sliceSettings.gridLayout) setGridLayout(sliceSettings.gridLayout as 1 | 2 | 3 | 4)
+        if (typeof sliceSettings.sensitivity === "number") setSensitivity(sliceSettings.sensitivity)
+        if (typeof sliceSettings.minDistance === "number") setMinDistance(sliceSettings.minDistance)
+        setAuditionEnabled(!!sliceSettings.auditionEnabled)
+
+        if (typeof playbackConfig.volume === "number") setVolume(playbackConfig.volume)
+        if (typeof playbackConfig.useOriginalAudio === "boolean") setUseOriginalAudio(playbackConfig.useOriginalAudio)
         if (project.fx_chains) setSliceFx(project.fx_chains)
         if (project.notes) setNotes(project.notes)
 
-        if (sliceRows && sliceRows.length > 0) {
-          const loadedSlices = sliceRows.map((s) => ({
+        let derivedTrim: [number, number] | null = null
+
+        if (project.kit_slices?.length) {
+          const loadedSlices = project.kit_slices.map((s) => ({
             id:
               s.id ||
               (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `slice-${Date.now().toString(36)}`),
@@ -1061,33 +1028,87 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
           resetSliceHistory()
           setSlicesWithHistory(loadedSlices, false)
           setSelectedSliceId(loadedSlices[0]?.id ?? null)
+
+          const starts = loadedSlices.map((s) => s.start)
+          const ends = loadedSlices.map((s) => s.end)
+          if (starts.length && ends.length) {
+            derivedTrim = [Math.min(...starts), Math.max(...ends)]
+          }
         }
 
-        // Pick an audio URL to decode (project source or first signed chop)
-        const candidateUrl = project.source_audio_path || signedAssets.find((a) => a.signedUrl)?.signedUrl
-        if (candidateUrl) {
+        const trimWindow =
+          (sliceSettings.trimSelection as [number, number] | undefined) ||
+          derivedTrim ||
+          null
+
+        const stemAsset =
+          assets?.find((a) => a.asset_type === "stem" && (a.signedUrl || a.storage_path)) ||
+          assets?.find((a) => a.signedUrl || a.storage_path)
+
+        const isAbsoluteUrl = (value?: string | null) => !!value && /^https?:\/\//i.test(value)
+
+        const candidateUrl = stemAsset?.signedUrl
+          ? stemAsset.signedUrl
+          : isAbsoluteUrl(stemAsset?.storage_path)
+            ? `/api/proxy-audio?url=${encodeURIComponent(stemAsset?.storage_path || "")}`
+            : isAbsoluteUrl(project.source_audio_path)
+              ? `/api/proxy-audio?url=${encodeURIComponent(project.source_audio_path || "")}`
+              : null
+
+        if (candidateUrl || project.source_audio_path) {
           if (!audioContextInitialized) {
             await initializeAudioContext({ showToast: false })
           }
           if (audioContext.current) {
             try {
-              const res = await fetch(candidateUrl)
+              const res = await fetch(candidateUrl ?? "")
               if (res.ok) {
                 const arrayBuffer = await res.arrayBuffer()
                 const decoded = await audioContext.current.decodeAudioData(arrayBuffer.slice(0))
-                setAudioBuffer(decoded)
-                setOriginalAudioBuffer(decoded)
+                const trimmed =
+                  trimWindow && trimWindow.length === 2
+                    ? sliceAudioBuffer(decoded, Number(trimWindow[0]), Number(trimWindow[1]))
+                    : decoded
+
+                if (trimWindow) {
+                  setTrimSelection([Number(trimWindow[0]), Number(trimWindow[1])])
+                }
+
+                setAudioBuffer(trimmed)
+                setOriginalAudioBuffer(trimmed)
+                setUploadedFileInfo({ url: project.source_audio_path || stemAsset?.storage_path || "", key: "" })
+              } else {
+                throw new Error(`Audio fetch failed (${res.status})`)
               }
             } catch (err) {
               console.warn("Failed to load project audio", err)
+              toast({
+                title: "Could not load audio",
+                description: "Saved project found, but audio could not be fetched.",
+                variant: "destructive",
+              })
             }
+          } else {
+            toast({
+              title: "Audio context not ready",
+              description: "Could not initialize audio playback.",
+              variant: "destructive",
+            })
           }
+        } else {
+          toast({
+            title: "No audio found",
+            description: "Saved project loaded, but no audio path was available. Try re-uploading or re-saving the project.",
+            variant: "destructive",
+          })
         }
 
-        toast({
-          title: "Project loaded",
-          description: "Continue editing your saved session.",
-        })
+        if (candidateUrl) {
+          toast({
+            title: "Project loaded",
+            description: "Continue editing your saved session.",
+          })
+        }
       } catch (err) {
         console.error(err)
         toast({
@@ -1097,11 +1118,12 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         })
       } finally {
         setIsProcessing(false)
+        setIsProjectLoading(false)
       }
     }
 
     void loadProject()
-  }, [searchParams, user, projectId, toast])
+  }, [searchParams, user, projectId, toast, audioContextInitialized])
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
@@ -1200,6 +1222,9 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         setUseOriginalAudio(false)
         setAudioBuffer(result.audioBuffer)
         setDetectedOutputs(["drum-kit"] as KitOutputId[])
+        if (result.stemUrl) {
+          setUploadedFileInfo({ url: result.stemUrl, key: "" })
+        }
 
         toast({
           title: "Drum extraction complete",
@@ -1579,21 +1604,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     setIsSavingProject(true)
     try {
       const payload = buildProjectPayload()
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      })
-      const text = await response.text()
-      console.log("Save project response", response.status, text)
-      const json = text ? JSON.parse(text) : {}
-      if (!response.ok) {
-        throw new Error(json.error || text || "Failed to save project")
-      }
-      const data = json
-      const newId = data.projectId as string
+      const data = await saveProjectToApi(payload)
+      const newId = data.projectId
       setProjectId(newId)
       return newId
     } finally {
@@ -2585,7 +2597,38 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     updateSlice(sliceId, { fadeOutShape: newShape })
   }
 
+  const sliceAudioBuffer = (buffer: AudioBuffer, start: number, end: number) => {
+    const s = Math.max(0, start)
+    const e = Math.min(buffer.duration, end)
+    if (e <= s) return buffer
+    const sampleRate = buffer.sampleRate
+    const startSample = Math.floor(s * sampleRate)
+    const endSample = Math.floor(e * sampleRate)
+    const frameCount = endSample - startSample
+    if (frameCount <= 0) return buffer
+    const trimmed = audioContext.current?.createBuffer(buffer.numberOfChannels, frameCount, sampleRate)
+    if (!trimmed) return buffer
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const channelData = buffer.getChannelData(channel)
+      const segment = channelData.subarray(startSample, endSample)
+      trimmed.copyToChannel(segment, channel, 0)
+    }
+    return trimmed
+  }
+
   // Render the landing page or the full application based on whether an audio file is loaded
+  if (isProjectLoading && searchParams.get("projectId")) {
+    return (
+      <main className="flex min-h-[70vh] items-center justify-center p-6" data-build-tag={BUILD_TAG}>
+        <div className="space-y-3 text-center text-white">
+          <p className="text-xs uppercase tracking-[0.35em] text-white/50">Loading project</p>
+          <p className="text-xl font-semibold">Fetching your saved slices…</p>
+          <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-amber-300 border-t-transparent" />
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="flex flex-col items-center justify-center p-2 md:p-8 max-w-full overflow-x-hidden" data-build-tag={BUILD_TAG}>
       <div className="mb-3 w-full max-w-6xl flex items-center justify-between rounded-xl border border-amber-200/30 bg-[#140f1f] px-4 py-2 text-[11px] font-mono uppercase tracking-[0.2em] text-amber-100">

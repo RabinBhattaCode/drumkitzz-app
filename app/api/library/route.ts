@@ -3,6 +3,8 @@ import { z } from "zod"
 
 import { createRouteHandlerSupabaseClient } from "@/lib/supabase/server"
 
+export const runtime = "nodejs"
+
 const SaveLibrarySchema = z.object({
   projectId: z.string().uuid(),
   kitId: z.string().uuid().optional(), // if updating an existing kit
