@@ -177,6 +177,9 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   // Auth state
   const { isAuthenticated, isLoading: authLoading } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const shouldAutoExport = ["1", "true", "yes"].includes((searchParams.get("autoExport") || "").toLowerCase())
+  const autoReturnMode = searchParams.get("autoReturn") || null
 
   // Audio state
   const [audioFile, setAudioFile] = useState<File | null>(null)
@@ -226,6 +229,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     future: [],
   })
   const hasAutoDetectedRef = useRef(false)
+  const hasAutoExportedRef = useRef(false)
 
   // Add state for individual slice zoom levels and scroll positions
   const [sliceZoomLevels, setSliceZoomLevels] = useState<Record<string, number>>({})
@@ -241,6 +245,9 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [isEditingKitName, setIsEditingKitName] = useState(false)
   const [hasCustomKitName, setHasCustomKitName] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
+  const [kitTags, setKitTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState("")
+  const [kitCategory, setKitCategory] = useState<"drum" | "loop">("drum")
 
   // Export settings
   const [exportFormat, setExportFormat] = useState<"wav" | "mp3">("mp3")
@@ -261,6 +268,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const [projectId, setProjectId] = useState<string | null>(null)
   const [kitId, setKitId] = useState<string | null>(null)
   const [isSavingProject, setIsSavingProject] = useState(false)
+  const [autoExportQueued, setAutoExportQueued] = useState(false)
+  const [autoExportStatus, setAutoExportStatus] = useState<"idle" | "preparing">("idle")
 
   const MAX_SLICE_HISTORY = 50
   const setSlicesWithHistory = (
@@ -314,6 +323,19 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const canRedo = sliceHistory.future.length > 0
   const hasSlices = slices.length > 0
 
+  const addTag = (next: string) => {
+    const value = next.trim()
+    if (!value) return
+    setKitTags((prev) => {
+      if (prev.includes(value)) return prev
+      if (prev.length >= 3) return prev
+      return [...prev, value]
+    })
+    setTagInput("")
+  }
+
+  const removeTag = (tag: string) => setKitTags((prev) => prev.filter((t) => t !== tag))
+
   // Ensure each slice has FX defaults
   useEffect(() => {
     setSliceFx((prev) => {
@@ -328,6 +350,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       return changed ? next : prev
     })
   }, [slices])
+
+  useEffect(() => {
+    if (!shouldAutoExport) {
+      hasAutoExportedRef.current = false
+      setAutoExportQueued(false)
+      setAutoExportStatus("idle")
+    }
+  }, [shouldAutoExport])
 
   // Audio context
   const audioContext = useRef<AudioContext | null>(null)
@@ -352,7 +382,6 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   const auditionPressedKeysRef = useRef<Set<string>>(new Set())
   const { toast } = useToast()
   const { user } = useAuth()
-  const searchParams = useSearchParams()
 
   // Refs for waveform interaction
   const containerRef = useRef<HTMLDivElement>(null)
@@ -988,6 +1017,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       try {
         setIsProcessing(true)
         setIsProjectLoading(true)
+        hasAutoExportedRef.current = false
+        setAutoExportQueued(shouldAutoExport)
         const { project, assets } = await loadProjectFromApi(pid)
 
         setProjectId(project.id)
@@ -1001,6 +1032,12 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         if (typeof sliceSettings.sensitivity === "number") setSensitivity(sliceSettings.sensitivity)
         if (typeof sliceSettings.minDistance === "number") setMinDistance(sliceSettings.minDistance)
         setAuditionEnabled(!!sliceSettings.auditionEnabled)
+        if (Array.isArray((sliceSettings as any).kitTags)) {
+          setKitTags(((sliceSettings as any).kitTags as string[]).slice(0, 3))
+        }
+        if ((sliceSettings as any).kitCategory === "loop" || (sliceSettings as any).kitCategory === "drum") {
+          setKitCategory((sliceSettings as any).kitCategory)
+        }
 
         if (typeof playbackConfig.volume === "number") setVolume(playbackConfig.volume)
         if (typeof playbackConfig.useOriginalAudio === "boolean") setUseOriginalAudio(playbackConfig.useOriginalAudio)
@@ -1026,8 +1063,13 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
             volume: (s.metadata as any)?.volume ?? 1,
           }))
           resetSliceHistory()
-          setSlicesWithHistory(loadedSlices, false)
-          setSelectedSliceId(loadedSlices[0]?.id ?? null)
+          const preparedSlices = shouldAutoExport ? loadedSlices.map((slice) => ({ ...slice, selected: true })) : loadedSlices
+          setSlicesWithHistory(preparedSlices, false)
+          setSelectedSliceId(preparedSlices[0]?.id ?? null)
+          if (shouldAutoExport && preparedSlices.length > 0) {
+            setAutoExportQueued(true)
+            hasAutoExportedRef.current = false
+          }
 
           const starts = loadedSlices.map((s) => s.start)
           const ends = loadedSlices.map((s) => s.end)
@@ -1123,7 +1165,40 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     }
 
     void loadProject()
-  }, [searchParams, user, projectId, toast, audioContextInitialized])
+  }, [searchParams, user, projectId, toast, audioContextInitialized, shouldAutoExport])
+
+  useEffect(() => {
+    if (!shouldAutoExport) return
+    if (!autoExportQueued) return
+    if (hasAutoExportedRef.current) return
+    if (isProjectLoading || isProcessing) return
+    if (!audioBuffer || slices.length === 0) return
+
+    hasAutoExportedRef.current = true
+    setAutoExportStatus("preparing")
+    void exportSlices({ autoReturn: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoExport, autoExportQueued, isProjectLoading, isProcessing, audioBuffer, slices])
+
+  useEffect(() => {
+    if (!searchParams.get("fresh")) return
+    stopPlayback()
+    stopPreviewPlayback()
+    setProjectId(null)
+    setKitId(null)
+    setKitName("")
+    setHasCustomKitName(false)
+    setKitTags([])
+    setKitCategory("drum")
+    clearSlices(false)
+    resetSliceHistory()
+    setPotentialSlices([])
+    setSelectedSliceId(null)
+    setAudioBuffer(null)
+    setOriginalAudioBuffer(null)
+    setUploadedFileInfo(null)
+    setNotes("")
+  }, [searchParams])
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault()
@@ -1580,6 +1655,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         trimSelection,
         gridLayout,
         auditionEnabled,
+        kitTags,
+        kitCategory,
       },
       playbackConfig: {
         volume,
@@ -2058,7 +2135,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       return
     }
 
+    const isTextField = (target: EventTarget | null) => {
+      if (!(target instanceof HTMLElement)) return false
+      const tag = target.tagName.toLowerCase()
+      return tag === "input" || tag === "textarea" || target.isContentEditable || target.getAttribute("role") === "textbox"
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (isTyping || isTextField(event.target)) return
       const key = event.key.toLowerCase()
       if (!AUDITION_KEY_ORDER.includes(key)) return
 
@@ -2073,6 +2157,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     }
 
     const handleKeyUp = (event: KeyboardEvent) => {
+      if (isTextField(event.target)) return
       const key = event.key.toLowerCase()
       if (!AUDITION_KEY_ORDER.includes(key)) return
 
@@ -2172,7 +2257,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
   }
 
   // Export selected slices
-  const exportSlices = async () => {
+  const exportSlices = async (options?: { autoReturn?: boolean }) => {
+    const autoReturn = options?.autoReturn ?? false
     if (!audioBuffer || slices.length === 0) return
 
     const selectedSlices = slices.filter((slice) => slice.selected)
@@ -2182,9 +2268,17 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         description: "No slices selected for export",
         variant: "destructive",
       })
+      if (autoReturn) {
+        setAutoExportStatus("idle")
+        setAutoExportQueued(false)
+        hasAutoExportedRef.current = true
+      }
       return
     }
 
+    if (autoReturn) {
+      setAutoExportStatus("preparing")
+    }
     setIsProcessing(true)
 
     try {
@@ -2292,6 +2386,18 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
       URL.revokeObjectURL(url)
 
       setIsProcessing(false)
+      if (autoReturn) {
+        setAutoExportStatus("idle")
+        setAutoExportQueued(false)
+        if (typeof window !== "undefined" && autoReturnMode === "popup") {
+          window.opener?.postMessage({ type: "drumkitzz:autoExport:complete" }, "*")
+          setTimeout(() => window.close(), 300)
+        } else {
+          setTimeout(() => {
+            router.push("/my-projects")
+          }, 500)
+        }
+      }
       toast({
         title: "Export complete",
         description: `${selectedSlices.length} slices exported successfully`,
@@ -2299,6 +2405,16 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     } catch (error) {
       console.error("Error exporting slices:", error)
       setIsProcessing(false)
+      if (autoReturn) {
+        setAutoExportStatus("idle")
+        setAutoExportQueued(false)
+        if (typeof window !== "undefined" && autoReturnMode === "popup") {
+          window.opener?.postMessage(
+            { type: "drumkitzz:autoExport:error", message: "Export failed. Please retry from the editor." },
+            "*",
+          )
+        }
+      }
       toast({
         title: "Export error",
         description: "An error occurred while exporting slices.",
@@ -2621,8 +2737,12 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
     return (
       <main className="flex min-h-[70vh] items-center justify-center p-6" data-build-tag={BUILD_TAG}>
         <div className="space-y-3 text-center text-white">
-          <p className="text-xs uppercase tracking-[0.35em] text-white/50">Loading project</p>
-          <p className="text-xl font-semibold">Fetching your saved slices…</p>
+          <p className="text-xs uppercase tracking-[0.35em] text-white/50">
+            {shouldAutoExport ? "Preparing drum kit" : "Loading project"}
+          </p>
+          <p className="text-xl font-semibold">
+            {shouldAutoExport ? "Gathering your slices for download…" : "Fetching your saved slices…"}
+          </p>
           <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-amber-300 border-t-transparent" />
         </div>
       </main>
@@ -2631,6 +2751,15 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
   return (
     <main className="flex flex-col items-center justify-center p-2 md:p-8 max-w-full overflow-x-hidden" data-build-tag={BUILD_TAG}>
+      {shouldAutoExport && autoExportQueued && autoExportStatus === "preparing" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur">
+          <div className="space-y-3 text-center text-white">
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-white/20 border-t-[#f5d97a]" />
+            <p className="text-lg font-semibold">Preparing drum kit…</p>
+            <p className="text-sm text-white/60">Gathering your slices and building the download.</p>
+          </div>
+        </div>
+      )}
       <div className="mb-3 w-full max-w-6xl flex items-center justify-between rounded-xl border border-amber-200/30 bg-[#140f1f] px-4 py-2 text-[11px] font-mono uppercase tracking-[0.2em] text-amber-100">
         <span>DrumKitzz Editor</span>
         <span>Build {BUILD_TAG} · if you don’t see this, you’re on an old bundle</span>
@@ -2965,6 +3094,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                       type="text"
                       value={kitName}
                       onChange={handleKitNameChange}
+                      onFocus={() => setIsTyping(true)}
                       onBlur={handleKitNameBlur}
                       onKeyDown={(e) => {
                         if (e.key === "Enter") {
@@ -3005,6 +3135,61 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                       <p className="mt-1 text-lg font-semibold">{stat.value}</p>
                     </div>
                   ))}
+                </div>
+                <div className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs uppercase tracking-[0.35em] text-white/50">Tags</p>
+                    <div className="flex gap-2">
+                      {(["drum", "loop"] as const).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => setKitCategory(type)}
+                          className={`rounded-full px-3 py-1 text-xs uppercase tracking-wide transition ${
+                            kitCategory === type
+                              ? "bg-amber-300 text-black"
+                              : "bg-white/10 text-white/70 hover:bg-white/20"
+                          }`}
+                        >
+                          {type === "drum" ? "Drum Kit" : "Loop Kit"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {kitTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="group inline-flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs text-white"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          className="text-white/60 hover:text-white"
+                          onClick={() => removeTag(tag)}
+                          aria-label={`Remove ${tag}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                    {kitTags.length < 3 && (
+                      <input
+                        value={tagInput}
+                        onChange={(e) => setTagInput(e.target.value)}
+                        onFocus={() => setIsTyping(true)}
+                        onBlur={() => setIsTyping(false)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            addTag(tagInput)
+                          }
+                        }}
+                        placeholder="Enter up to 3 tags"
+                        className="min-w-[140px] flex-1 bg-transparent text-sm text-white placeholder:text-white/40 focus:outline-none"
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -3254,16 +3439,6 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                   >
                     {isSavingProject ? "Saving..." : "Save"}
                   </Button>
-                  {projectId && (
-                    <Button
-                      onClick={handleSaveAsProject}
-                      disabled={isSavingProject || slices.length === 0}
-                      variant="outline"
-                      className="h-11 rounded-full border border-white/20 bg-transparent px-6 text-white/80 hover:text-white disabled:opacity-50"
-                    >
-                      Save As…
-                    </Button>
-                  )}
                   <Button
                     onClick={handleSaveToLibrary}
                     disabled={isSavingKit || slices.length === 0}
@@ -3273,7 +3448,7 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
                     {isSavingKit ? "Saving..." : "Save to Library"}
                   </Button>
                   <Button
-                    onClick={exportSlices}
+                    onClick={() => exportSlices()}
                     disabled={isProcessing || slices.length === 0}
                     variant="outline"
                     className="h-11 rounded-full border border-white/20 bg-transparent px-6 text-white/80 hover:text-white"

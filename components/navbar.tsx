@@ -74,14 +74,13 @@ export default function Navbar() {
   const navConfig = useMemo<(NavLink | NavGroup)[]>(
     () => [
       { type: "link", title: "Home", icon: Home, href: "/home" },
-      { type: "link", title: "Create", icon: Music, href: "/create" },
+      { type: "link", title: "Create", icon: Music, href: "/create?fresh=1" },
       {
         type: "group",
         title: "My Kits",
         icon: Box,
-        href: "/my-library",
+        href: "/my-projects",
         items: [
-          { label: "My Library", href: "/my-library" },
           { label: "My Projects", href: "/my-projects" },
         ],
       },
@@ -112,10 +111,7 @@ export default function Navbar() {
     [],
   )
 
-  const protectedRoutes = useMemo(
-    () => new Set(["/my-library", "/my-projects", "/my-kits", "/marketplace/stats"]),
-    [],
-  )
+  const protectedRoutes = useMemo(() => new Set(["/my-projects", "/my-kits", "/marketplace/stats"]), [])
 
   const handleProtectedClick = (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     if (!isAuthenticated && protectedRoutes.has(href)) {

@@ -1,11 +1,21 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { PageHero } from "@/components/page-hero"
 import { createBrowserClient } from "@/lib/supabase-browser"
 import { useAuth } from "@/lib/auth-context"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { loadProject as loadProjectFromApi } from "@/lib/projects"
+import { useToast } from "@/hooks/use-toast"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 type ProjectRow = {
   id: string
@@ -13,12 +23,22 @@ type ProjectRow = {
   status: string | null
   updated_at: string | null
   created_at: string | null
+  slice_settings?: Record<string, unknown> | null
 }
 
 export default function MyProjectsPage() {
   const { user } = useAuth()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
+  const [downloadModal, setDownloadModal] = useState<{
+    open: boolean
+    status: "preparing" | "error"
+    message?: string
+  }>({ open: false, status: "preparing" })
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const [updatingVisibility, setUpdatingVisibility] = useState<Record<string, boolean>>({})
+  const [updatingPrice, setUpdatingPrice] = useState<Record<string, boolean>>({})
+  const { toast } = useToast()
 
   useEffect(() => {
     const load = async () => {
@@ -30,7 +50,7 @@ export default function MyProjectsPage() {
       const supabase = createBrowserClient()
       const { data, error } = await supabase
         .from("kit_projects")
-        .select("id,title,status,updated_at,created_at")
+        .select("id,title,status,updated_at,created_at,slice_settings")
         .order("updated_at", { ascending: false })
       if (error) {
         console.error("Failed to load projects", error)
@@ -55,6 +75,249 @@ export default function MyProjectsPage() {
       return
     }
     setProjects((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  const statusLabel = (status?: string | null) => {
+    if (status === "published") return "Published"
+    if (status === "ready") return "Unlisted"
+    if (status === "archived") return "Archived"
+    return "Draft"
+  }
+
+  const setVisibility = async (id: string, visibility: "published" | "private" | "unlisted" | "draft") => {
+    const statusValue = visibility === "published" ? "published" : visibility === "unlisted" ? "ready" : "draft"
+    const supabase = createBrowserClient()
+    setUpdatingVisibility((prev) => ({ ...prev, [id]: true }))
+    try {
+      const { error } = await supabase.from("kit_projects").update({ status: statusValue }).eq("id", id)
+      if (error) {
+        console.error("Failed to update visibility", error)
+        toast({
+          title: "Visibility not updated",
+          description: "Could not update visibility. Please try again.",
+          variant: "destructive",
+        })
+      } else {
+        setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, status: statusValue } : p)))
+        toast({
+          title: "Visibility updated",
+          description: `Project is now ${statusLabel(statusValue).toLowerCase()}.`,
+        })
+      }
+    } finally {
+      setUpdatingVisibility((prev) => ({ ...prev, [id]: false }))
+    }
+  }
+
+  const detectCurrency = () => {
+    if (typeof navigator === "undefined") return "USD"
+    const locale = navigator.language.toLowerCase()
+    if (locale.includes("gb") || locale.includes("en-gb")) return "GBP"
+    return "USD"
+  }
+
+  const formatPriceLabel = (project: ProjectRow) => {
+    const price = (project.slice_settings as any)?.price
+    if (!price || price.amountCents === undefined || price.isFree) return "Free"
+    const amount = (price.amountCents / 100).toFixed(2)
+    const symbol = price.currency === "GBP" ? "£" : "$"
+    return `${symbol}${amount}`
+  }
+
+  const handleSetPrice = async (project: ProjectRow) => {
+    const supabase = createBrowserClient()
+    const existingPrice = (project.slice_settings as any)?.price
+    const currency = existingPrice?.currency || detectCurrency()
+    const input = window.prompt(`Set price in ${currency}. Enter 0 for free.`, existingPrice?.amountCents ? (existingPrice.amountCents / 100).toString() : "0")
+    if (input === null) return
+    const value = input.trim().toLowerCase() === "free" ? 0 : Number.parseFloat(input)
+    if (!Number.isFinite(value) || value < 0) {
+      toast({
+        title: "Invalid price",
+        description: "Enter a number 0 or greater.",
+        variant: "destructive",
+      })
+      return
+    }
+    const priceCents = Math.round(value * 100)
+    setUpdatingPrice((prev) => ({ ...prev, [project.id]: true }))
+    try {
+      const { data, error: fetchError } = await supabase
+        .from("kit_projects")
+        .select("slice_settings")
+        .eq("id", project.id)
+        .single()
+      if (fetchError) {
+        throw fetchError
+      }
+      const existing = (data?.slice_settings as Record<string, unknown>) || {}
+      const nextSettings = { ...existing, price: { amountCents: priceCents, currency, isFree: priceCents === 0 } }
+      const { error: updateError } = await supabase.from("kit_projects").update({ slice_settings: nextSettings }).eq("id", project.id)
+      if (updateError) {
+        throw updateError
+      }
+      setProjects((prev) =>
+        prev.map((p) => (p.id === project.id ? { ...p, slice_settings: nextSettings } : p)),
+      )
+      toast({
+        title: "Price saved",
+        description: priceCents === 0 ? "Marked as free." : `Set to ${(priceCents / 100).toFixed(2)} ${currency}.`,
+      })
+    } catch (err) {
+      console.error(err)
+      toast({
+        title: "Price not saved",
+        description: "Could not update price. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setUpdatingPrice((prev) => ({ ...prev, [project.id]: false }))
+    }
+  }
+
+  const writeString = (view: DataView, offset: number, value: string) => {
+    for (let i = 0; i < value.length; i++) {
+      view.setUint8(offset + i, value.charCodeAt(i))
+    }
+  }
+
+  const bufferToWav = (buffer: AudioBuffer): Blob => {
+    const numberOfChannels = buffer.numberOfChannels
+    const length = buffer.length * numberOfChannels * 2
+    const sampleRate = buffer.sampleRate
+
+    const wavHeader = new ArrayBuffer(44)
+    const view = new DataView(wavHeader)
+
+    writeString(view, 0, "RIFF")
+    view.setUint32(4, 36 + length, true)
+    writeString(view, 8, "WAVE")
+    writeString(view, 12, "fmt ")
+    view.setUint32(16, 16, true)
+    view.setUint16(20, 1, true)
+    view.setUint16(22, numberOfChannels, true)
+    view.setUint32(24, sampleRate, true)
+    view.setUint32(28, sampleRate * numberOfChannels * 2, true)
+    view.setUint16(32, numberOfChannels * 2, true)
+    view.setUint16(34, 16, true)
+    writeString(view, 36, "data")
+    view.setUint32(40, length, true)
+
+    const audioData = new Int16Array(buffer.length * numberOfChannels)
+    for (let channel = 0; channel < numberOfChannels; channel++) {
+      const channelData = buffer.getChannelData(channel)
+      for (let i = 0; i < buffer.length; i++) {
+        const sample = Math.max(-1, Math.min(1, channelData[i]))
+        audioData[i * numberOfChannels + channel] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
+      }
+    }
+
+    return new Blob([wavHeader, audioData], { type: "audio/wav" })
+  }
+
+  const applyFades = (source: AudioBuffer, start: number, end: number, fadeInMs: number, fadeOutMs: number) => {
+    const sampleRate = source.sampleRate
+    const startSample = Math.floor(start * sampleRate)
+    const endSample = Math.floor(end * sampleRate)
+    const length = Math.max(0, endSample - startSample)
+    const out = audioContextRef.current?.createBuffer(source.numberOfChannels, length, sampleRate)
+    if (!out) return null
+    for (let channel = 0; channel < source.numberOfChannels; channel++) {
+      const src = source.getChannelData(channel)
+      const dst = out.getChannelData(channel)
+      const fadeInSamples = Math.floor((fadeInMs / 1000) * sampleRate)
+      const fadeOutSamples = Math.floor((fadeOutMs / 1000) * sampleRate)
+      for (let i = 0; i < length; i++) {
+        let sample = src[startSample + i] || 0
+        if (i < fadeInSamples && fadeInSamples > 0) {
+          sample *= i / fadeInSamples
+        }
+        if (i > length - fadeOutSamples && fadeOutSamples > 0) {
+          sample *= (length - i) / fadeOutSamples
+        }
+        dst[i] = sample
+      }
+    }
+    return out
+  }
+
+  const handleDownloadProject = async (project: ProjectRow) => {
+    setDownloadModal({ open: true, status: "preparing", message: "Building your download..." })
+    try {
+      const { project: loadedProject, assets } = await loadProjectFromApi(project.id)
+
+      const slices = (loadedProject.kit_slices || []).map((s, idx) => ({
+        id: s.id || `slice-${idx}`,
+        name: s.name || `Slice-${idx + 1}`,
+        type: s.type || "perc",
+        start: Number(s.start_time),
+        end: Number(s.end_time),
+        fadeIn: s.fade_in_ms ?? 0,
+        fadeOut: s.fade_out_ms ?? 0,
+      }))
+
+      if (slices.length === 0) {
+        throw new Error("No slices found to export.")
+      }
+
+      const stemAsset =
+        assets?.find((a) => a.asset_type === "stem" && (a.signedUrl || a.storage_path)) ||
+        assets?.find((a) => a.signedUrl || a.storage_path)
+      const isAbsoluteUrl = (value?: string | null) => !!value && /^https?:\/\//i.test(value)
+      const candidateUrl = stemAsset?.signedUrl
+        ? stemAsset.signedUrl
+        : isAbsoluteUrl(stemAsset?.storage_path)
+          ? `/api/proxy-audio?url=${encodeURIComponent(stemAsset?.storage_path || "")}`
+          : isAbsoluteUrl(loadedProject.source_audio_path)
+            ? `/api/proxy-audio?url=${encodeURIComponent(loadedProject.source_audio_path || "")}`
+            : null
+
+      if (!candidateUrl) {
+        throw new Error("No audio source found for this project.")
+      }
+
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const res = await fetch(candidateUrl)
+      if (!res.ok) {
+        throw new Error(`Audio fetch failed (${res.status})`)
+      }
+      const arrayBuffer = await res.arrayBuffer()
+      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer.slice(0))
+
+      const { default: JSZip } = await import("jszip")
+      const zip = new JSZip()
+      slices.forEach((slice) => {
+        const buffer = applyFades(audioBuffer, slice.start, slice.end, slice.fadeIn, slice.fadeOut)
+        if (!buffer) return
+        const wav = bufferToWav(buffer)
+        const folder = zip.folder(slice.type ? slice.type.toLowerCase() : "samples")
+        folder?.file(`${slice.name}.wav`, wav)
+      })
+
+      const content = await zip.generateAsync({ type: "blob" })
+      const url = URL.createObjectURL(content)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${project.title || "DrumKitzz_Kit"}.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      setDownloadModal({ open: false, status: "preparing" })
+    } catch (err) {
+      console.error(err)
+      setDownloadModal({
+        open: true,
+        status: "error",
+        message: err instanceof Error ? err.message : "Something went wrong while preparing your kit.",
+      })
+    } finally {
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {})
+        audioContextRef.current = null
+      }
+    }
   }
 
   const drafts = useMemo(
@@ -122,25 +385,57 @@ export default function MyProjectsPage() {
         {list.map((project) => (
           <div
             key={project.id}
-            className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-black/30 p-5 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)] md:flex-row md:items-center md:justify-between"
+            className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-black/30 p-5 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)] md:flex-row md:items-center md:gap-6"
           >
-            <div>
+            <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm uppercase tracking-[0.35em] text-white/50">{sectionLabel}</p>
-              <h2 className="text-xl font-semibold">{project.title || "Untitled Project"}</h2>
+              <h2 className="text-xl font-semibold leading-tight md:whitespace-nowrap">{project.title || "Untitled Project"}</h2>
               <p className="text-sm text-white/60">Updated {formatUpdated(project.updated_at || project.created_at)}</p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="ml-auto flex w-full flex-wrap items-center gap-3 md:w-auto md:flex-nowrap md:gap-3">
               <Link href={`/create?projectId=${project.id}`} prefetch={false}>
-                <Button className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110">
+                <Button className="h-11 rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] px-5 text-base font-medium text-black hover:brightness-110">
                   Edit project
                 </Button>
               </Link>
               <Button
                 variant="ghost"
-                className="rounded-full border border-white/20 text-white/70 hover:bg-red-500/20 hover:text-white"
+                className="h-11 rounded-full border border-white/20 px-5 text-base font-medium text-red-300 hover:bg-red-500/20 hover:text-white"
                 onClick={() => deleteProject(project.id)}
               >
                 Delete
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-full border border-white/20 bg-transparent px-5 text-base font-medium text-white/80 hover:text-white"
+                    disabled={!!updatingVisibility[project.id]}
+                  >
+                    {updatingVisibility[project.id] ? "Updating..." : `Visibility: ${statusLabel(project.status)}`}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuLabel>Set visibility</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => setVisibility(project.id, "published")}>Published</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setVisibility(project.id, "private")}>Draft / Private</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setVisibility(project.id, "unlisted")}>Unlisted</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <Button
+                variant="outline"
+                className="h-11 rounded-full border border-white/20 bg-transparent px-5 text-base font-medium text-white/80 hover:text-white"
+                onClick={() => handleDownloadProject(project)}
+              >
+                Download
+              </Button>
+              <Button
+                variant="outline"
+                className="h-11 rounded-full border border-emerald-400/50 bg-transparent px-5 text-base font-medium text-emerald-100 hover:bg-emerald-500/10 hover:text-white"
+                onClick={() => handleSetPrice(project)}
+                disabled={!!updatingPrice[project.id]}
+              >
+                {updatingPrice[project.id] ? "Saving..." : `Price: ${formatPriceLabel(project)}`}
               </Button>
             </div>
           </div>
@@ -157,14 +452,9 @@ export default function MyProjectsPage() {
         description="Every kit stays editable. Jump back into drafts, duplicate sessions, or re-export to your library."
         actions={
           <div className="flex flex-wrap gap-3">
-            <Link href="/my-library">
-              <Button variant="outline" className="rounded-full border-white/20 text-white/80 hover:text-white">
-                Library
-              </Button>
-            </Link>
             <Link href="/create">
               <Button className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110">
-                Resume slicing
+                Create
               </Button>
             </Link>
           </div>
@@ -192,6 +482,36 @@ export default function MyProjectsPage() {
         </header>
         {renderProjectList(finished, "Published", false)}
       </section>
+
+      <Dialog open={downloadModal.open} onOpenChange={(open) => !open && setDownloadModal({ open: false, status: "preparing" })}>
+        <DialogContent className="border border-white/10 bg-[#0c0a11] text-white sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-lg">Preparing drum kit…</DialogTitle>
+            <DialogDescription className="text-white/60">
+              Exporting your slices without leaving this page.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-3">
+            {downloadModal.status === "preparing" ? (
+              <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-[#f5d97a]" />
+            ) : (
+              <div className="h-10 w-10 rounded-full border-2 border-red-400/70 text-red-400 flex items-center justify-center text-sm">
+                !
+              </div>
+            )}
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {downloadModal.status === "preparing" ? "Building your download…" : "Export failed"}
+              </p>
+              {downloadModal.status === "error" && (
+                <p className="text-xs text-white/60">
+                  {downloadModal.message || "Something went wrong. Try again from the editor."}
+                </p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
