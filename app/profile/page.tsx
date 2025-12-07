@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useToast } from "@/hooks/use-toast"
-import { Music, Download, Heart, MessageSquare, Share2, MoreHorizontal } from "lucide-react"
+import { Music, Download, Heart, MessageSquare, Share2, MoreHorizontal, LockKeyhole } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { createBrowserClient } from "@/lib/supabase-browser"
+import { downloadProjectZip } from "@/lib/download-kit"
 
 export default function ProfilePage() {
   const { user, isAuthenticated, isLoading } = useAuth()
@@ -29,17 +30,24 @@ export default function ProfilePage() {
         try {
           setIsFetching(true)
           const supabase = createBrowserClient()
-          const { data, error } = await supabase
+          const { data: kitRows, error: kitError } = await supabase
             .from("kits")
             .select(
-              "id,name,description,cover_image_path,status,visibility,download_count,like_count,updated_at,created_at,price_cents,currency,bundle_path",
+              "id,name,description,cover_image_path,status,visibility,download_count,like_count,updated_at,created_at,price_cents,currency,bundle_path,owner_id",
             )
             .eq("owner_id", user?.id)
-            .or("visibility.in.(public,unlisted),status.in.(published,ready)")
+            .or("visibility.eq.public,status.in.(published,ready)")
             .order("updated_at", { ascending: false })
 
-          if (error) {
-            console.error("Failed to load kits", error)
+          const { data: projectRows, error: projectError } = await supabase
+            .from("kit_projects")
+            .select("id,title,status,updated_at,created_at,slice_settings,owner_id")
+            .eq("owner_id", user?.id)
+            .in("status", ["published", "ready"])
+            .order("updated_at", { ascending: false })
+
+          if (kitError || projectError) {
+            console.error("Failed to load kits", kitError || projectError)
             toast({
               title: "Could not load kits",
               description: "Public and unlisted kits failed to load. Please try again.",
@@ -47,7 +55,44 @@ export default function ProfilePage() {
             })
             setKits([])
           } else {
-            setKits(data || [])
+            const normalizedKits = (kitRows || []).map((k) => ({
+              ...k,
+              tags: [],
+              source: "kit",
+            }))
+            const normalizedProjects = (projectRows || []).map((p) => {
+              const slice = (p.slice_settings || {}) as any
+              const price = slice?.price
+              const priceCents = price?.amountCents ?? 0
+              const currency = price?.currency || "USD"
+              const cover = slice?.cover_image_path || slice?.artwork || "/placeholder.svg"
+              const tags = Array.isArray(slice?.tags) ? slice.tags.slice(0, 6) : []
+              return {
+                id: `proj-${p.id}`,
+                name: p.title || "Untitled Kit",
+                description: slice?.description || "",
+                cover_image_path: cover,
+                status: p.status,
+                visibility: p.status === "ready" ? "unlisted" : "public",
+                download_count: 0,
+                like_count: 0,
+                updated_at: p.updated_at,
+                created_at: p.created_at,
+                price_cents: priceCents,
+                currency,
+                bundle_path: slice?.bundle_path,
+                tags,
+                source: "project",
+                project_id: p.id,
+                owner_id: p.owner_id,
+              }
+            })
+            const merged = [...normalizedKits, ...normalizedProjects].sort((a, b) => {
+              const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0
+              const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0
+              return bDate - aDate
+            })
+            setKits(merged)
           }
         } finally {
           setIsFetching(false)
@@ -55,7 +100,7 @@ export default function ProfilePage() {
       }
       void load()
     }
-  }, [isAuthenticated, isLoading, router])
+  }, [isAuthenticated, isLoading, user?.id, router])
 
   if (isLoading) {
     return (
@@ -96,19 +141,42 @@ export default function ProfilePage() {
     const symbol = (kit.currency || "USD") === "GBP" ? "£" : "$"
     return `${symbol}${(kit.price_cents / 100).toFixed(2)}`
   }
+  const isMyKit = (kit: any) => kit?.owner_id && user?.id && kit.owner_id === user.id
 
   const handleDownload = (kit: any) => {
     const priceLabel = formatPrice(kit)
     const isFree = priceLabel === "Free"
-    if (isFree) {
+    if (isMyKit(kit) || isFree) {
+      if (kit.source === "project" && kit.project_id) {
+        downloadProjectZip(kit.project_id, kit.name || "DrumKitzz_Kit").catch((err) => {
+          console.error(err)
+          toast({
+            title: "Download failed",
+            description: err instanceof Error ? err.message : "Could not prepare download.",
+            variant: "destructive",
+          })
+        })
+      } else if (kit.bundle_path) {
+        window.open(kit.bundle_path, "_blank", "noopener")
+      } else {
+        toast({
+          title: "No download available",
+          description: "This kit does not have a bundle attached yet.",
+          variant: "destructive",
+        })
+      }
       toast({
         title: "Download starting",
         description: `Preparing ${kit.name || "your kit"}…`,
       })
-      // Hook up real download using bundle_path or assets when available
       return
     }
     setPurchaseModal({ open: true, kit })
+  }
+  const downloadButtonLabel = (kit: any) => {
+    const priceLabel = formatPrice(kit)
+    const isFree = priceLabel === "Free"
+    return isMyKit(kit) || isFree ? "Download" : "Buy"
   }
 
   return (
@@ -175,8 +243,8 @@ export default function ProfilePage() {
         <section className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="text-sm uppercase tracking-[0.35em] text-white/50">Featured Kits</p>
-              <h2 className="text-2xl font-semibold">Your published & unlisted kits</h2>
+              <p className="text-sm uppercase tracking-[0.35em] text-white/50">Sound Kits</p>
+              <h2 className="text-2xl font-semibold">Your public & unlisted kits</h2>
             </div>
             <p className="text-white/60">Showing {kits.length || 0}</p>
           </div>
@@ -195,79 +263,68 @@ export default function ProfilePage() {
               </Button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-2 gap-6 md:grid-cols-3 xl:grid-cols-4">
               {kits.map((kit) => (
                 <div
                   key={kit.id}
-                  className="group overflow-hidden rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm transition duration-200 hover:-translate-y-1 hover:border-white/20"
+                  className="group overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-black/30 shadow-[0_10px_30px_-15px_rgba(0,0,0,0.8)] transition duration-200 hover:-translate-y-1 hover:border-white/20"
                 >
-                  <div className="relative aspect-[4/3]">
+                  <div className="relative aspect-square bg-black/30">
                     <img
                       src={kit.cover_image_path || "/placeholder.svg"}
                       alt={kit.name || "Kit cover"}
                       className="h-full w-full object-cover"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                    <div className="absolute left-3 top-3">
-                      <Badge className="rounded-full bg-white/15 text-white backdrop-blur-md">
-                        {kit.status === "ready" ? "Unlisted" : kit.status || "Published"}
-                      </Badge>
-                    </div>
-                    <div className="absolute bottom-3 left-3 flex items-center gap-3 text-sm text-white/80">
-                      <span className="flex items-center gap-1">
-                        <Download className="h-4 w-4" />
-                        {kit.download_count || 0}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Heart className="h-4 w-4" />
-                        {kit.like_count || 0}
-                      </span>
-                    </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
                   </div>
                   <div className="space-y-3 p-4">
                     <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-lg font-semibold leading-tight">{kit.name || "Untitled Kit"}</h3>
-                      <Badge variant="outline" className="rounded-full border-white/20 text-white/70">
-                        {kit.visibility || kit.status || "Draft"}
+                      <h3 className="text-lg font-semibold uppercase leading-tight text-white">
+                        {kit.name || "Untitled Kit"}
+                      </h3>
+                      <Badge variant="outline" className="rounded-full border-white/20 text-xs text-white/70">
+                        {kit.status === "ready" ? "Unlisted" : "Public"}
                       </Badge>
                     </div>
-                    <p className="text-sm text-white/70 line-clamp-2">
-                      {kit.description || "No description yet. Add a short blurb to help fans discover this kit."}
-                    </p>
-                    <div className="flex items-center gap-4 text-xs text-white/60">
+                    {kit.tags && kit.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/70">
+                        {kit.tags.map((tag: string) => (
+                          <span
+                            key={tag}
+                            className="rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-white/80 shadow-[0_6px_16px_-12px_rgba(0,0,0,0.6)]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 text-xs text-white/60">
+                      <span className="flex items-center gap-1">
+                        <Download className="h-3.5 w-3.5" />
+                        {kit.download_count || 0}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Heart className="h-3.5 w-3.5" />
+                        {kit.like_count || 0}
+                      </span>
                       <span>
                         {kit.updated_at
                           ? formatDistanceToNow(new Date(kit.updated_at), { addSuffix: true })
                           : formatDistanceToNow(new Date(kit.created_at || Date.now()), { addSuffix: true })}
                       </span>
-                      <span className="flex items-center gap-1">
-                        <MessageSquare className="h-3.5 w-3.5" />
-                        {kit.comment_count || 0}
-                      </span>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Button
-                        size="sm"
-                        className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] px-4 text-black hover:brightness-110"
-                        onClick={() => router.push(`/my-kits/${kit.id}`)}
-                      >
-                        Edit kit
-                      </Button>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 rounded-full border border-indigo-400/40 bg-black/40 px-4 py-2 text-sm text-white shadow-[0_8px_20px_-12px_rgba(79,70,229,0.8)]">
+                        <LockKeyhole className="h-4 w-4 text-indigo-200" />
+                        <span className="font-semibold">{formatPrice(kit) === "Free" ? "Free" : formatPrice(kit)}</span>
+                      </div>
                       <Button
                         size="sm"
                         variant="outline"
-                        className="rounded-full border-white/25 bg-transparent px-4 text-white hover:bg-white/10"
-                        onClick={() => router.push(`/my-kits/${kit.id}`)}
-                      >
-                        Open
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="ml-auto rounded-full border-white/25 bg-transparent px-4 text-white hover:bg-white/10"
+                        className="rounded-full border-white/30 bg-white/5 px-4 text-white hover:bg-white/10"
                         onClick={() => handleDownload(kit)}
                       >
-                        {formatPrice(kit) === "Free" ? "Download" : `Price: ${formatPrice(kit)}`}
+                        {downloadButtonLabel(kit)}
                       </Button>
                     </div>
                   </div>
@@ -281,20 +338,20 @@ export default function ProfilePage() {
       <Dialog open={purchaseModal.open} onOpenChange={(open) => setPurchaseModal({ open, kit: purchaseModal.kit })}>
         <DialogContent className="border border-white/10 bg-[#0c0a11] text-white sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-lg">Purchase required</DialogTitle>
+            <DialogTitle className="text-lg">Payment required</DialogTitle>
             <CardDescription className="text-white/70">
               {purchaseModal.kit?.name ? `${purchaseModal.kit.name} is a paid kit.` : "This kit is paid."}
             </CardDescription>
           </DialogHeader>
           <p className="text-sm text-white/80">
-            Price: {purchaseModal.kit ? formatPrice(purchaseModal.kit) : "—"}. Connect billing to continue.
+            Price: {purchaseModal.kit ? formatPrice(purchaseModal.kit) : "—"}. Add to cart to continue.
           </p>
           <DialogFooter className="mt-4 flex items-center justify-end gap-3">
             <Button variant="outline" className="rounded-full border-white/20 text-white hover:bg-white/10" onClick={() => setPurchaseModal({ open: false })}>
               Close
             </Button>
             <Button className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110">
-              Continue to purchase
+              Add to cart
             </Button>
           </DialogFooter>
         </DialogContent>

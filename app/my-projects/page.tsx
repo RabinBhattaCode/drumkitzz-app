@@ -8,6 +8,7 @@ import { createBrowserClient } from "@/lib/supabase-browser"
 import { useAuth } from "@/lib/auth-context"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { loadProject as loadProjectFromApi } from "@/lib/projects"
+import { downloadProjectZip } from "@/lib/download-kit"
 import { useToast } from "@/hooks/use-toast"
 import {
   DropdownMenu,
@@ -24,12 +25,14 @@ type ProjectRow = {
   updated_at: string | null
   created_at: string | null
   slice_settings?: Record<string, unknown> | null
+  cover_image_path?: string | null
 }
 
 export default function MyProjectsPage() {
   const { user } = useAuth()
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [downloadModal, setDownloadModal] = useState<{
     open: boolean
     status: "preparing" | "error"
@@ -45,20 +48,30 @@ export default function MyProjectsPage() {
       if (!user) {
         setProjects([])
         setIsLoaded(true)
+        setLoadError(null)
         return
       }
-      const supabase = createBrowserClient()
-      const { data, error } = await supabase
-        .from("kit_projects")
-        .select("id,title,status,updated_at,created_at,slice_settings")
-        .order("updated_at", { ascending: false })
-      if (error) {
-        console.error("Failed to load projects", error)
+      try {
+        const supabase = createBrowserClient()
+        const { data, error } = await supabase
+          .from("kit_projects")
+          .select("id,title,status,updated_at,created_at,slice_settings")
+          .order("updated_at", { ascending: false })
+        if (error) {
+          console.error("Failed to load projects", error)
+          setProjects([])
+          setLoadError(error.message || "Could not load projects.")
+        } else {
+          setProjects(data || [])
+          setLoadError(null)
+        }
+      } catch (err) {
+        console.error("Failed to load projects", err)
         setProjects([])
-      } else {
-        setProjects(data || [])
+        setLoadError(err instanceof Error ? err.message : "Could not load projects.")
+      } finally {
+        setIsLoaded(true)
       }
-      setIsLoaded(true)
     }
     void load()
   }, [user])
@@ -244,66 +257,7 @@ export default function MyProjectsPage() {
   const handleDownloadProject = async (project: ProjectRow) => {
     setDownloadModal({ open: true, status: "preparing", message: "Building your download..." })
     try {
-      const { project: loadedProject, assets } = await loadProjectFromApi(project.id)
-
-      const slices = (loadedProject.kit_slices || []).map((s, idx) => ({
-        id: s.id || `slice-${idx}`,
-        name: s.name || `Slice-${idx + 1}`,
-        type: s.type || "perc",
-        start: Number(s.start_time),
-        end: Number(s.end_time),
-        fadeIn: s.fade_in_ms ?? 0,
-        fadeOut: s.fade_out_ms ?? 0,
-      }))
-
-      if (slices.length === 0) {
-        throw new Error("No slices found to export.")
-      }
-
-      const stemAsset =
-        assets?.find((a) => a.asset_type === "stem" && (a.signedUrl || a.storage_path)) ||
-        assets?.find((a) => a.signedUrl || a.storage_path)
-      const isAbsoluteUrl = (value?: string | null) => !!value && /^https?:\/\//i.test(value)
-      const candidateUrl = stemAsset?.signedUrl
-        ? stemAsset.signedUrl
-        : isAbsoluteUrl(stemAsset?.storage_path)
-          ? `/api/proxy-audio?url=${encodeURIComponent(stemAsset?.storage_path || "")}`
-          : isAbsoluteUrl(loadedProject.source_audio_path)
-            ? `/api/proxy-audio?url=${encodeURIComponent(loadedProject.source_audio_path || "")}`
-            : null
-
-      if (!candidateUrl) {
-        throw new Error("No audio source found for this project.")
-      }
-
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const res = await fetch(candidateUrl)
-      if (!res.ok) {
-        throw new Error(`Audio fetch failed (${res.status})`)
-      }
-      const arrayBuffer = await res.arrayBuffer()
-      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer.slice(0))
-
-      const { default: JSZip } = await import("jszip")
-      const zip = new JSZip()
-      slices.forEach((slice) => {
-        const buffer = applyFades(audioBuffer, slice.start, slice.end, slice.fadeIn, slice.fadeOut)
-        if (!buffer) return
-        const wav = bufferToWav(buffer)
-        const folder = zip.folder(slice.type ? slice.type.toLowerCase() : "samples")
-        folder?.file(`${slice.name}.wav`, wav)
-      })
-
-      const content = await zip.generateAsync({ type: "blob" })
-      const url = URL.createObjectURL(content)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `${project.title || "DrumKitzz_Kit"}.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
+      await downloadProjectZip(project.id, project.title || "DrumKitzz_Kit")
       setDownloadModal({ open: false, status: "preparing" })
     } catch (err) {
       console.error(err)
@@ -312,11 +266,6 @@ export default function MyProjectsPage() {
         status: "error",
         message: err instanceof Error ? err.message : "Something went wrong while preparing your kit.",
       })
-    } finally {
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(() => {})
-        audioContextRef.current = null
-      }
     }
   }
 
@@ -348,11 +297,59 @@ export default function MyProjectsPage() {
     return `${days} days ago`
   }
 
+  const handleArtworkUpload = async (project: ProjectRow, file: File) => {
+    const supabase = createBrowserClient()
+    const ext = file.name.split(".").pop() || "png"
+    const path = `artwork/${project.id}-${Date.now()}.${ext}`
+    const { error: uploadError } = await supabase.storage.from("kit-artwork").upload(path, file, { upsert: true })
+    if (uploadError) {
+      console.error(uploadError)
+      toast({
+        title: "Upload failed",
+        description: "Could not upload artwork. Check storage bucket and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const { data: publicUrlData } = supabase.storage.from("kit-artwork").getPublicUrl(path)
+    const publicUrl = publicUrlData?.publicUrl
+
+    setProjects((prev) =>
+      prev.map((p) =>
+        p.id === project.id ? { ...p, slice_settings: { ...(p.slice_settings || {}), artwork: publicUrl } } : p,
+      ),
+    )
+
+    const { data, error: fetchError } = await supabase
+      .from("kit_projects")
+      .select("slice_settings")
+      .eq("id", project.id)
+      .single()
+    if (fetchError) {
+      console.error(fetchError)
+      return
+    }
+    const existing = (data?.slice_settings as Record<string, unknown>) || {}
+    const nextSettings = { ...existing, artwork: publicUrl }
+    const { error: updateError } = await supabase.from("kit_projects").update({ slice_settings: nextSettings }).eq("id", project.id)
+    if (updateError) {
+      console.error(updateError)
+    }
+  }
+
   const renderProjectList = (list: ProjectRow[], sectionLabel: string, emptyCta = true) => {
     if (!isLoaded) {
       return (
         <div className="rounded-[24px] border border-white/10 bg-black/20 p-6 text-center text-white/60">
           Loading projects...
+        </div>
+      )
+    }
+    if (loadError) {
+      return (
+        <div className="rounded-[24px] border border-red-400/30 bg-red-500/5 p-6 text-center text-red-200">
+          {loadError}
         </div>
       )
     }
@@ -381,62 +378,89 @@ export default function MyProjectsPage() {
     }
 
     return (
-      <div className="space-y-4">
+      <div className="space-y-7">
         {list.map((project) => (
           <div
             key={project.id}
-            className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-black/30 p-5 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)] md:flex-row md:items-center md:gap-6"
+            className="flex flex-col gap-4 rounded-[28px] border border-white/10 bg-black/30 p-5 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)] md:flex-row md:items-center md:gap-5"
           >
             <div className="min-w-0 flex-1 space-y-1">
               <p className="text-sm uppercase tracking-[0.35em] text-white/50">{sectionLabel}</p>
-              <h2 className="text-xl font-semibold leading-tight md:whitespace-nowrap">{project.title || "Untitled Project"}</h2>
+              <h2 className="text-xl font-semibold leading-tight whitespace-nowrap">{project.title || "Untitled Project"}</h2>
               <p className="text-sm text-white/60">Updated {formatUpdated(project.updated_at || project.created_at)}</p>
             </div>
-            <div className="ml-auto flex w-full flex-wrap items-center gap-3 md:w-auto md:flex-nowrap md:gap-3">
-              <Link href={`/create?projectId=${project.id}`} prefetch={false}>
-                <Button className="h-11 rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] px-5 text-base font-medium text-black hover:brightness-110">
-                  Edit project
-                </Button>
-              </Link>
-              <Button
-                variant="ghost"
-                className="h-11 rounded-full border border-white/20 px-5 text-base font-medium text-red-300 hover:bg-red-500/20 hover:text-white"
-                onClick={() => deleteProject(project.id)}
-              >
-                Delete
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="h-11 rounded-full border border-white/20 bg-transparent px-5 text-base font-medium text-white/80 hover:text-white"
-                    disabled={!!updatingVisibility[project.id]}
-                  >
-                    {updatingVisibility[project.id] ? "Updating..." : `Visibility: ${statusLabel(project.status)}`}
+            <div className="ml-auto flex w-full flex-wrap items-center gap-2.5 md:w-auto md:flex-nowrap md:gap-3 md:justify-end">
+              <div className="flex flex-wrap items-center gap-2.5 md:flex-nowrap md:gap-3">
+                <Link href={`/create?projectId=${project.id}`} prefetch={false}>
+                  <Button className="h-10 rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] px-4 text-sm font-medium text-black hover:brightness-110">
+                    Edit project
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuLabel>Set visibility</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => setVisibility(project.id, "published")}>Published</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setVisibility(project.id, "private")}>Draft / Private</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setVisibility(project.id, "unlisted")}>Unlisted</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button
-                variant="outline"
-                className="h-11 rounded-full border border-white/20 bg-transparent px-5 text-base font-medium text-white/80 hover:text-white"
-                onClick={() => handleDownloadProject(project)}
-              >
-                Download
-              </Button>
-              <Button
-                variant="outline"
-                className="h-11 rounded-full border border-emerald-400/50 bg-transparent px-5 text-base font-medium text-emerald-100 hover:bg-emerald-500/10 hover:text-white"
-                onClick={() => handleSetPrice(project)}
-                disabled={!!updatingPrice[project.id]}
-              >
-                {updatingPrice[project.id] ? "Saving..." : `Price: ${formatPriceLabel(project)}`}
-              </Button>
+                </Link>
+                <Button
+                  variant="ghost"
+                  className="h-10 rounded-full border border-white/20 px-4 text-sm font-medium text-red-300 hover:bg-red-500/20 hover:text-white"
+                  onClick={() => deleteProject(project.id)}
+                >
+                  Delete
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="h-10 rounded-full border border-white/20 bg-transparent px-4 text-sm font-medium text-white/80 hover:text-white"
+                      disabled={!!updatingVisibility[project.id]}
+                    >
+                      {updatingVisibility[project.id] ? "Updating..." : `Visibility: ${statusLabel(project.status)}`}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuLabel>Set visibility</DropdownMenuLabel>
+                    <DropdownMenuItem onClick={() => setVisibility(project.id, "published")}>Published</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setVisibility(project.id, "private")}>Draft / Private</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setVisibility(project.id, "unlisted")}>Unlisted</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="h-px w-full border-t border-white/10 md:hidden" aria-hidden />
+              <div className="flex items-center gap-3 md:pl-6">
+                <label className="group relative flex h-12 w-12 cursor-pointer items-center justify-center rounded-xl border border-white/15 bg-white/5 text-xs uppercase tracking-wide text-white/60 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.8)] hover:bg-white/10">
+                  {project.slice_settings?.artwork || project.cover_image_path ? (
+                    <img
+                      src={(project.slice_settings as any)?.artwork || project.cover_image_path || "/placeholder.svg"}
+                      alt="Artwork"
+                      className="absolute inset-0 h-full w-full rounded-xl object-cover"
+                    />
+                  ) : (
+                    <span>Art</span>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleArtworkUpload(project, file)
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="flex flex-wrap items-center gap-2.5 md:flex-nowrap md:gap-3">
+                <Button
+                  variant="outline"
+                  className="h-10 rounded-full border border-white/20 bg-transparent px-4 text-sm font-medium text-white/80 hover:text-white"
+                  onClick={() => handleDownloadProject(project)}
+                >
+                  Download
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-10 rounded-full border border-emerald-400/50 bg-transparent px-4 text-sm font-medium text-emerald-100 hover:bg-emerald-500/10 hover:text-white"
+                  onClick={() => handleSetPrice(project)}
+                  disabled={!!updatingPrice[project.id]}
+                >
+                  {updatingPrice[project.id] ? "Saving..." : `Price: ${formatPriceLabel(project)}`}
+                </Button>
+              </div>
             </div>
           </div>
         ))}

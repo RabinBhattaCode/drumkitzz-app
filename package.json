@@ -72,6 +72,7 @@
     "react-is": "^19.2.0",
     "react-resizable-panels": "latest",
     "recharts": "latest",
+    "stripe": "^16.6.0",
     "replicate": "latest",
     "sonner": "latest",
     "tailwind-merge": "^2.5.5",

@@ -164,6 +164,10 @@ UPLOADTHING_SECRET=your-secret-key
 STRIPE_SECRET_KEY=sk_test_...
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
+# Optional: map pricing cards to Stripe Prices for Checkout
+NEXT_PUBLIC_STRIPE_PRICE_TIER2=price_...
+NEXT_PUBLIC_STRIPE_PRICE_TIER3=price_...
+NEXT_PUBLIC_STRIPE_PRICE_TIER4=price_...
 \`\`\`
 
 **How to get:**
@@ -176,6 +180,13 @@ STRIPE_WEBHOOK_SECRET=whsec_...
    - Events: `checkout.session.completed`, `payment_intent.succeeded`
 
 **Note:** You can skip Stripe setup during initial development. Marketplace features will show mock data.
+
+**Stripe TODO (before production)**
+- Configure webhook to include the full event groups you’ll need in production:
+  - Subscriptions/Checkout: Checkout (4 events), Customer (21), Invoice (17), Payment Intent (8), Payment Method (4), Billing (8), Product (3), Price (3).
+  - Marketplace/Connect: Account (6), Account v2 (12), Account Person v2 (3), Capability (1), Charge (13), Application Fee (3), Transfer, Payout (6), Refund (3), Balance (1 optional).
+- For now, you can keep a minimal set enabled during development.
+- Persistence: webhook code attempts to upsert into a `user_subscriptions` table (columns: user_id PK, stripe_customer_id, stripe_subscription_id, status, tier_id, price_id, current_period_end, cancel_at_period_end). Create this table in Supabase before relying on subscription state.
 
 #### 5. Security Webhook (Optional)
 

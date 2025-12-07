@@ -2760,10 +2760,6 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
           </div>
         </div>
       )}
-      <div className="mb-3 w-full max-w-6xl flex items-center justify-between rounded-xl border border-amber-200/30 bg-[#140f1f] px-4 py-2 text-[11px] font-mono uppercase tracking-[0.2em] text-amber-100">
-        <span>DrumKitzz Editor</span>
-        <span>Build {BUILD_TAG} · if you don’t see this, you’re on an old bundle</span>
-      </div>
       {/* Extraction Progress Dialog */}
       <ExtractionProgressDialog
         isOpen={showExtractionDialog}
