@@ -1,250 +1,225 @@
-"use client"
+import Link from 'next/link';
+import { BarChart3, Home as HomeIcon, Info, Lock, Play, ShoppingBag } from 'lucide-react';
 
-import { useState } from "react"
-import Image from "next/image"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Download, Star, Heart, TrendingUp, Users } from "lucide-react"
-import { PageHero } from "@/components/page-hero"
+type ChartEntry = {
+  rank: number;
+  trackTitle: string;
+  artistName: string;
+  spotifyUrl: string;
+  youtubeUrl?: string;
+  tier: 'Diamond' | 'Platinum' | 'Gold' | 'Silver';
+  popularity: number;
+};
 
-const TOP_CREATORS = [
-  {
-    id: "creator1",
-    name: "DrumMaster",
-    avatar: "/vibrant-street-market.png",
-    followers: 12500,
-    kits: 47,
-    downloads: 156000,
-    isFollowing: false,
-  },
-  {
-    id: "creator2",
-    name: "BeatSmith",
-    avatar: "/drum-kit-stage.png",
-    followers: 9800,
-    kits: 32,
-    downloads: 124000,
-    isFollowing: true,
-  },
-  {
-    id: "creator3",
-    name: "RhythmQueen",
-    avatar: "/dusty-beats.png",
-    followers: 8700,
-    kits: 28,
-    downloads: 98000,
-    isFollowing: false,
-  },
-  {
-    id: "creator4",
-    name: "LoopLegend",
-    avatar: "/boom-bap-beat.png",
-    followers: 7500,
-    kits: 25,
-    downloads: 85000,
-    isFollowing: false,
-  },
-  {
-    id: "creator5",
-    name: "SampleKing",
-    avatar: "/vibrant-city-market.png",
-    followers: 6200,
-    kits: 19,
-    downloads: 72000,
-    isFollowing: true,
-  },
-]
+const topChart: ChartEntry[] = Array.from({ length: 10 }).map((_, i) => ({
+  rank: i + 1,
+  trackTitle: `Demo Track ${i + 1}`,
+  artistName: i % 2 === 0 ? 'IFUNO Artist' : 'Underground MC',
+  spotifyUrl: 'https://open.spotify.com/track/3nAbcDEFghostface',
+  youtubeUrl: i % 2 === 0 ? 'https://www.youtube.com/watch?v=U5r9CvDgJ_w' : undefined,
+  tier: i < 3 ? 'Diamond' : i < 6 ? 'Platinum' : i < 8 ? 'Gold' : 'Silver',
+  popularity: Math.max(10, 100 - i * 5),
+}));
 
-const TOP_KITS = [
-  {
-    id: "kit1",
-    name: "Boom Bap Essentials",
-    creator: "DrumMaster",
-    image: "/boom-bap-beat.png",
-    downloads: 24500,
-    rating: 4.9,
-    price: 24.99,
-    isLiked: true,
-  },
-  {
-    id: "kit2",
-    name: "Trap Universe",
-    creator: "BeatSmith",
-    image: "/vibrant-street-market.png",
-    downloads: 19800,
-    rating: 4.8,
-    price: 29.99,
-    isLiked: false,
-  },
-  {
-    id: "kit3",
-    name: "Lo-Fi Dreams",
-    creator: "RhythmQueen",
-    image: "/dusty-beats.png",
-    downloads: 18200,
-    rating: 4.7,
-    price: 19.99,
-    isLiked: false,
-  },
-  {
-    id: "kit4",
-    name: "House Fundamentals",
-    creator: "LoopLegend",
-    image: "/drum-kit-stage.png",
-    downloads: 15600,
-    rating: 4.6,
-    price: 34.99,
-    isLiked: true,
-  },
-  {
-    id: "kit5",
-    name: "Drill Dominance",
-    creator: "SampleKing",
-    image: "/vibrant-city-market.png",
-    downloads: 14300,
-    rating: 4.5,
-    price: 27.99,
-    isLiked: false,
-  },
-]
+const newMusic: ChartEntry[] = Array.from({ length: 6 }).map((_, i) => ({
+  rank: i + 1,
+  trackTitle: `New Drop ${i + 1}`,
+  artistName: i % 2 === 0 ? 'UK Drill' : 'UK Rap',
+  spotifyUrl: 'https://open.spotify.com/track/7xyKidwildTrack',
+  youtubeUrl: 'https://www.youtube.com/watch?v=kTiB8QFKDU8',
+  tier: i < 2 ? 'Diamond' : i < 4 ? 'Platinum' : 'Gold',
+  popularity: 80 - i * 7,
+}));
+
+function SaveButton() {
+  return (
+    <button className="inline-flex items-center space-x-2 rounded-md bg-ifuno-green px-3 py-2 text-xs font-semibold text-black hover:bg-ifuno-pink hover:text-white transition-colors">
+      <Play className="w-4 h-4" />
+      <span>Save to Spotify</span>
+    </button>
+  );
+}
 
 export default function ChartsPage() {
-  const [creators, setCreators] = useState(TOP_CREATORS)
-  const [kits, setKits] = useState(TOP_KITS)
-
-  const handleFollowCreator = (creatorId: string) => {
-    setCreators((prev) =>
-      prev.map((creator) =>
-        creator.id === creatorId
-          ? {
-              ...creator,
-              isFollowing: !creator.isFollowing,
-              followers: creator.isFollowing ? creator.followers - 1 : creator.followers + 1,
-            }
-          : creator,
-      ),
-    )
-  }
-
-  const handleLikeKit = (kitId: string) => {
-    setKits((prev) => prev.map((kit) => (kit.id === kitId ? { ...kit, isLiked: !kit.isLiked } : kit)))
-  }
-
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-10 lg:px-0">
-      <PageHero
-        eyebrow="Marketplace"
-        title="Trending charts"
-        description="Track the creators, kits, and genres shaping the DrumKitzz economy."
-      />
-
-      <Tabs defaultValue="creators" className="w-full">
-        <TabsList className="mb-6 grid w-full grid-cols-2 rounded-full bg-white/5 p-1">
-          <TabsTrigger
-            value="creators"
-            className="rounded-full text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
-          >
-            Top creators
-          </TabsTrigger>
-          <TabsTrigger
-            value="kits"
-            className="rounded-full text-xs uppercase tracking-[0.35em] data-[state=active]:bg-gradient-to-r data-[state=active]:from-[#f5d97a] data-[state=active]:to-[#f0b942] data-[state=active]:text-black"
-          >
-            Top kits
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="creators" className="space-y-4">
-          {creators.map((creator, index) => (
-            <div
-              key={creator.id}
-              className="flex items-center gap-4 rounded-[28px] border border-white/10 bg-black/30 p-4 text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)]"
-            >
-              <div className="text-2xl font-bold text-white/30">#{index + 1}</div>
-              <Avatar className="h-12 w-12">
-                <AvatarImage src={creator.avatar || "/placeholder.svg"} alt={creator.name} />
-                <AvatarFallback>{creator.name[0]}</AvatarFallback>
-              </Avatar>
-              <div className="flex-1">
-                <p className="text-lg font-semibold">{creator.name}</p>
-                <div className="flex flex-wrap gap-4 text-sm text-white/60">
-                  <span className="flex items-center gap-1">
-                    <Users className="h-4 w-4" />
-                    {creator.followers.toLocaleString()} followers
-                  </span>
-                  <span>{creator.kits} kits</span>
-                  <span className="flex items-center gap-1">
-                    <Download className="h-4 w-4" />
-                    {creator.downloads.toLocaleString()} downloads
-                  </span>
-                </div>
-              </div>
-              <Button
-                variant={creator.isFollowing ? "secondary" : "ghost"}
-                className="rounded-full border border-white/15 text-white hover:bg-white/10"
-                onClick={() => handleFollowCreator(creator.id)}
+    <div className="min-h-screen bg-black text-white">
+      <nav className="bg-black/90 border-b border-ifuno-pink/40 sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-3 items-center h-16">
+            <div className="flex items-center space-x-3">
+              <Link
+                href="/"
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-ifuno-green text-black hover:bg-ifuno-pink hover:text-white transition-all duration-200 text-sm font-medium uppercase"
               >
-                {creator.isFollowing ? "Following" : "Follow"}
-              </Button>
+                <HomeIcon className="w-4 h-4" />
+                <span>New</span>
+              </Link>
+              <Link
+                href="/?section=leak"
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg text-gray-300 hover:text-white hover:bg-ifuno-pink transition-all duration-200 text-sm font-medium uppercase"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Leak</span>
+              </Link>
             </div>
-          ))}
-        </TabsContent>
 
-        <TabsContent value="kits">
-          <div className="grid gap-6 md:grid-cols-2">
-            {kits.map((kit, index) => (
-              <div
-                key={kit.id}
-                className="overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-[#090712] to-[#050308] text-white shadow-[0_25px_80px_rgba(5,5,7,0.65)]"
+            <div className="flex justify-center">
+              <Link href="/" className="hover:opacity-80 transition-opacity duration-200">
+                <img
+                  src="https://ik.imagekit.io/vv1coyjgq/IFUKNO%20large%20gap%202025.png?updatedAt=1751549577754"
+                  alt="IFUNO Logo"
+                  className="h-12 w-auto object-contain"
+                />
+              </Link>
+            </div>
+
+            <div className="flex items-center space-x-4 justify-end">
+              <Link
+                href="/charts"
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-ifuno-pink/20 text-white border border-ifuno-pink/60 text-sm font-medium uppercase"
               >
-                <div className="relative h-44 w-full">
-                  <Image src={kit.image || "/placeholder.svg"} alt={kit.name} fill className="object-cover" />
-                  <div className="absolute left-4 top-4 rounded-full bg-black/60 px-3 py-1 text-sm font-semibold">
-                    #{index + 1}
+                <BarChart3 className="w-4 h-4" />
+                <span>Charts</span>
+              </Link>
+              <Link
+                href="/shop"
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg text-gray-300 hover:text-white hover:bg-ifuno-pink transition-all duration-200 text-sm font-medium uppercase"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                <span>Shop</span>
+              </Link>
+              <Link
+                href="/about"
+                className="flex items-center space-x-2 px-3 py-2 rounded-lg text-gray-300 hover:text-white hover:bg-ifuno-pink transition-all duration-200 text-sm font-medium uppercase"
+              >
+                <Info className="w-4 h-4" />
+                <span>About</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-6xl mx-auto px-6 py-10 space-y-10">
+        <header className="space-y-2">
+          <p className="text-xs text-gray-400 uppercase tracking-[0.2em]">IFUNO • CHARTS</p>
+          <h1 className="text-4xl font-black title-stroke">IFUNO Charts</h1>
+          <p className="text-gray-300 text-sm">
+            Sample Top 500 and New Music charts using the spreadsheet-style data (Spotify artist links and matched videos).
+          </p>
+        </header>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold">Top 500 (Sample)</h2>
+            <p className="text-xs text-gray-400">Demo feed</p>
+          </div>
+          <div className="overflow-hidden rounded-xl border border-ifuno-pink/40">
+            <table className="min-w-full divide-y divide-ifuno-pink/30">
+              <thead className="bg-black/60 text-xs uppercase tracking-wide text-gray-300">
+                <tr>
+                  <th className="px-3 py-3 text-left">Rank</th>
+                  <th className="px-3 py-3 text-left">Track</th>
+                  <th className="px-3 py-3 text-left">Artist</th>
+                  <th className="px-3 py-3 text-left">Tier</th>
+                  <th className="px-3 py-3 text-left">Popularity</th>
+                  <th className="px-3 py-3 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-ifuno-pink/20">
+                {topChart.map((entry) => (
+                  <tr key={entry.rank} className="hover:bg-ifuno-pink/5">
+                    <td className="px-3 py-3 text-sm text-gray-300">{entry.rank}</td>
+                    <td className="px-3 py-3 text-sm font-semibold">{entry.trackTitle}</td>
+                    <td className="px-3 py-3 text-sm text-gray-200">
+                      {entry.artistName}
+                      <a
+                        href={entry.spotifyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-2 text-ifuno-green text-xs underline"
+                      >
+                        Spotify
+                      </a>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className="rounded-full border border-ifuno-pink/60 px-2 py-0.5 text-[11px] uppercase tracking-wide text-ifuno-green">
+                        {entry.tier}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-sm text-gray-300">{entry.popularity}</td>
+                    <td className="px-3 py-3 space-y-2">
+                      <SaveButton />
+                      {entry.youtubeUrl && (
+                        <a
+                          href={entry.youtubeUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block text-xs text-ifuno-green underline"
+                        >
+                          Watch video
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold">New Music • This Week</h2>
+            <p className="text-xs text-gray-400">Sample weekly slice</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {newMusic.map((entry) => (
+              <div
+                key={entry.rank}
+                className="rounded-xl border border-ifuno-pink/30 bg-black/50 p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-gray-400">Rank #{entry.rank}</p>
+                    <h3 className="text-lg font-semibold">{entry.trackTitle}</h3>
+                    <p className="text-sm text-gray-300">
+                      {entry.artistName}
+                      <a
+                        href={entry.spotifyUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-2 text-ifuno-green underline"
+                      >
+                        Spotify
+                      </a>
+                    </p>
                   </div>
+                  <span className="rounded-full border border-ifuno-pink/60 px-2 py-0.5 text-[11px] uppercase tracking-wide text-ifuno-green">
+                    {entry.tier}
+                  </span>
                 </div>
-                <div className="space-y-3 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-lg font-semibold">{kit.name}</p>
-                      <p className="text-sm text-white/60">by {kit.creator}</p>
-                    </div>
-                    <div className="rounded-full border border-white/15 px-3 py-1 text-sm">${kit.price.toFixed(2)}</div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-4 text-sm text-white/70">
-                    <span className="flex items-center gap-1">
-                      <TrendingUp className="h-4 w-4" />
-                      {kit.downloads.toLocaleString()} downloads
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Star className="h-4 w-4" />
-                      {kit.rating.toFixed(1)}
-                    </span>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      className="rounded-full bg-gradient-to-r from-[#f5d97a] to-[#f0b942] text-black hover:brightness-110"
-                    >
-                      Purchase
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="rounded-full border border-white/15 text-white/70 hover:text-white"
-                      onClick={() => handleLikeKit(kit.id)}
-                    >
-                      <Heart className={`mr-2 h-4 w-4 ${kit.isLiked ? "fill-current text-rose-300" : ""}`} />
-                      {kit.isLiked ? "Liked" : "Like"}
-                    </Button>
-                  </div>
+                <div className="flex items-center justify-between text-sm text-gray-300">
+                  <span>Popularity: {entry.popularity}</span>
+                  <SaveButton />
                 </div>
+                {entry.youtubeUrl && (
+                  <div className="text-right">
+                    <a
+                      href={entry.youtubeUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-ifuno-green underline"
+                    >
+                      Watch video
+                    </a>
+                  </div>
+                )}
               </div>
             ))}
           </div>
-        </TabsContent>
-      </Tabs>
+        </section>
+      </div>
     </div>
-  )
+  );
 }

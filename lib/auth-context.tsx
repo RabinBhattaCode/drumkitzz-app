@@ -12,6 +12,7 @@ interface UserProfile {
   firstName?: string
   lastName?: string
   avatar?: string
+  backdrop?: string
 }
 
 interface AuthContext {
@@ -45,6 +46,7 @@ export function useAuth(): AuthContext {
       firstName: metadata?.first_name,
       lastName: metadata?.last_name,
       avatar: metadata?.avatar_url,
+      backdrop: metadata?.backdrop_url,
     }
   }, [session])
 

@@ -33,6 +33,7 @@ import {
   User,
   LogOut,
   DollarSign,
+  TrendingUp,
 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
@@ -75,26 +76,8 @@ export default function Navbar() {
     () => [
       { type: "link", title: "Home", icon: Home, href: "/home" },
       { type: "link", title: "Create", icon: Music, href: "/create?fresh=1" },
-      {
-        type: "group",
-        title: "My Kits",
-        icon: Box,
-        href: "/my-projects",
-        items: [
-          { label: "My Projects", href: "/my-projects" },
-        ],
-      },
-      {
-        type: "group",
-        title: "Market",
-        icon: ShoppingBag,
-        href: "/marketplace",
-        items: [
-          { label: "Marketplace", href: "/marketplace" },
-          { label: "Trending", href: "/marketplace/trending" },
-          { label: "Stats", href: "/marketplace/stats" },
-        ],
-      },
+      { type: "link", title: "My Kits", icon: Box, href: "/my-projects" },
+      { type: "link", title: "Market", icon: ShoppingBag, href: "/marketplace" },
       { type: "link", title: "Pricing", icon: DollarSign, href: "/pricing" },
       {
         type: "group",
@@ -221,7 +204,12 @@ export default function Navbar() {
             <DropdownMenuTrigger asChild>
               <button className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3 text-left transition hover:border-white/30 hover:bg-white/10">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={user?.avatar} />
+                  <AvatarImage
+                    src={
+                      user?.avatar ||
+                      "https://ik.imagekit.io/vv1coyjgq/ChatGPT%20Image%20Nov%2014,%202025,%2012_28_23%20AM.png?updatedAt=1763080146104"
+                    }
+                  />
                   <AvatarFallback className="bg-primary/30 text-primary-foreground">
                     {user?.firstName?.[0]}
                     {user?.lastName?.[0]}
@@ -245,6 +233,12 @@ export default function Navbar() {
                 <Link href="/settings" className="flex w-full items-center gap-2">
                   <Settings className="h-4 w-4" />
                   Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/marketplace/stats" className="flex w-full items-center gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  Stats
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

@@ -1034,6 +1034,8 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
         setAuditionEnabled(!!sliceSettings.auditionEnabled)
         if (Array.isArray((sliceSettings as any).kitTags)) {
           setKitTags(((sliceSettings as any).kitTags as string[]).slice(0, 3))
+        } else if (Array.isArray((sliceSettings as any).tags)) {
+          setKitTags(((sliceSettings as any).tags as string[]).slice(0, 3))
         }
         if ((sliceSettings as any).kitCategory === "loop" || (sliceSettings as any).kitCategory === "drum") {
           setKitCategory((sliceSettings as any).kitCategory)
@@ -1374,7 +1376,14 @@ export default function DrumSlicerPro({ variant = "classic" }: DrumSlicerProProp
 
           const decodedBuffer = await audioContext.current.decodeAudioData(arrayBuffer.slice(0))
 
-          const file = new File([blob], "recording.webm", { type: "audio/webm" })
+          // Convert to WAV so we can reuse the upload + processing pipeline
+          const wavBlob = await bufferToWav(decodedBuffer)
+          const file = new File([wavBlob], "recording.wav", { type: "audio/wav" })
+
+          // Run through the same prepare flow (uploads to UploadThing)
+          await prepareAudioFileForSlicing(file)
+
+          // Keep existing trim preview UX
           clearSlices(false)
           resetSliceHistory()
           setPotentialSlices([])

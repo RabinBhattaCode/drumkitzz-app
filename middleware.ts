@@ -5,6 +5,18 @@ import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 import type { Database } from "@/lib/database.types"
 
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+
+  // Handle @username -> /profile/username rewrites
+  if (pathname.startsWith("/@")) {
+    const handle = pathname.slice(2) || ""
+    if (handle) {
+      const url = request.nextUrl.clone()
+      url.pathname = `/profile/${handle}`
+      return NextResponse.rewrite(url)
+    }
+  }
+
   // Clone the response
   const response = NextResponse.next()
 
@@ -18,7 +30,7 @@ export async function middleware(request: NextRequest) {
     script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.youtube.com https://www.google-analytics.com;
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
     style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com;
-    img-src 'self' blob: data: https://i.ytimg.com https://www.gravatar.com https://ik.imagekit.io;
+    img-src 'self' blob: data: https://i.ytimg.com https://www.gravatar.com https://ik.imagekit.io https://utfs.io;
     font-src 'self' https://fonts.gstatic.com;
     connect-src 'self' https://www.googleapis.com https://www.youtube.com https://*.supabase.co https://d.lalal.ai https://*.lalal.ai https://*.uploadthing.com https://uploadthing.com https://sea1.ingest.uploadthing.com;
     media-src 'self' blob: data: https://www.youtube.com https://d.lalal.ai https://*.lalal.ai;

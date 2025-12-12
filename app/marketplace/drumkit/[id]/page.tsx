@@ -103,7 +103,9 @@ export default function DrumkitPage({ params }: { params: { id: string } }) {
     return <div className="container mx-auto py-8 px-4 text-red-400">Error: {error || "Kit not found"}</div>
   }
 
-  const cover = kit.cover_image_path || "/boom-bap-beat.png"
+  const cover =
+    kit.cover_image_path ||
+    "https://ik.imagekit.io/vv1coyjgq/ChatGPT%20Image%20Nov%2014,%202025,%2012_28_23%20AM.png?updatedAt=1763080146104"
 
   return (
     <div className="container mx-auto py-8 px-4">

@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { PageHero } from "@/components/page-hero"
 import { createBrowserClient } from "@/lib/supabase-browser"
+import { uploadFiles } from "@/lib/uploadthing"
 import { useAuth } from "@/lib/auth-context"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { loadProject as loadProjectFromApi } from "@/lib/projects"
@@ -34,6 +35,7 @@ export default function MyProjectsPage() {
   const [isLoaded, setIsLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [tempArtwork, setTempArtwork] = useState<Record<string, string>>({})
+  const [tempTags, setTempTags] = useState<Record<string, string>>({})
   const [downloadModal, setDownloadModal] = useState<{
     open: boolean
     status: "preparing" | "error"
@@ -42,6 +44,7 @@ export default function MyProjectsPage() {
   const audioContextRef = useRef<AudioContext | null>(null)
   const [updatingVisibility, setUpdatingVisibility] = useState<Record<string, boolean>>({})
   const [updatingPrice, setUpdatingPrice] = useState<Record<string, boolean>>({})
+  const [savingTags, setSavingTags] = useState<Record<string, boolean>>({})
   const { toast } = useToast()
 
   useEffect(() => {
@@ -129,6 +132,13 @@ export default function MyProjectsPage() {
     if (locale.includes("gb") || locale.includes("en-gb")) return "GBP"
     return "USD"
   }
+
+  const parseTags = (raw: string) =>
+    raw
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean)
+      .slice(0, 3)
 
   const formatPriceLabel = (project: ProjectRow) => {
     const price = (project.slice_settings as any)?.price
@@ -307,96 +317,134 @@ export default function MyProjectsPage() {
       })
       return
     }
-    const supabase = createBrowserClient()
-    const ext = file.name.split(".").pop() || "png"
-    const path = `${user.id}/artwork/${project.id}-${Date.now()}.${ext}`
+    const isImage = file.type.startsWith("image/")
+    const sizeLimit = 8 * 1024 * 1024
+    if (!isImage) {
+      toast({
+        title: "Unsupported file",
+        description: "Please upload an image file.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (file.size > sizeLimit) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 8MB.",
+        variant: "destructive",
+      })
+      return
+    }
+
     // Show immediate local preview
     const localUrl = URL.createObjectURL(file)
     setTempArtwork((prev) => ({ ...prev, [project.id]: localUrl }))
 
-    const getPublicOrSignedUrl = async (bucket: string, objectPath: string) => {
-      const publicUrl = supabase.storage.from(bucket).getPublicUrl(objectPath).data?.publicUrl
-      if (publicUrl) return publicUrl
-      const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(objectPath, 60 * 60 * 24 * 30)
-      return signed?.signedUrl ?? null
-    }
+    try {
+      const uploadResult = await uploadFiles("kitArtwork", { files: [file] })
+      const uploadedUrl = uploadResult?.[0]?.url
 
-    const bucketsToTry = ["covers", "kit-artwork"]
-    let uploadedUrl: string | null = null
-    let uploadBucketUsed: string | null = null
+      if (!uploadedUrl) {
+        throw new Error("UploadThing did not return a public URL for the image.")
+      }
 
-    for (const bucket of bucketsToTry) {
-      const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: true })
-      if (uploadError) {
-        const message = (uploadError as any)?.message?.toLowerCase?.() || ""
-        const isMissingBucket = message.includes("does not exist") || message.includes("not found")
-        if (isMissingBucket) {
-          console.warn(`Bucket ${bucket} missing, trying fallback`)
-          continue
-        }
-        console.error(uploadError)
+      const previewToUse = uploadedUrl || localUrl
+
+      // Keep temp preview in place for this session; remote URL will be used after reload
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === project.id ? { ...p, slice_settings: { ...(p.slice_settings || {}), artwork: previewToUse } } : p,
+        ),
+      )
+
+      const supabase = createBrowserClient()
+      const { data, error: fetchError } = await supabase
+        .from("kit_projects")
+        .select("slice_settings")
+        .eq("id", project.id)
+        .single()
+      if (fetchError) {
+        console.error(fetchError)
         toast({
-          title: "Upload failed",
-          description: uploadError.message || "Could not upload artwork. Please try again.",
+          title: "Artwork not saved",
+          description: "We uploaded the file but couldn't read your project settings.",
           variant: "destructive",
         })
         return
       }
-      const url = await getPublicOrSignedUrl(bucket, path)
-      if (!url) {
-        console.warn(`No public or signed URL returned from ${bucket} for ${path}`)
-        continue
+      const existing = (data?.slice_settings as Record<string, unknown>) || {}
+      const nextSettings = { ...existing, artwork: previewToUse }
+      const { error: updateError } = await supabase.from("kit_projects").update({ slice_settings: nextSettings }).eq("id", project.id)
+      if (updateError) {
+        console.error("Failed to persist artwork", updateError)
+        toast({
+          title: "Artwork not saved",
+          description: "Image uploaded but we couldn't save it to the project.",
+          variant: "destructive",
+        })
       }
-      uploadedUrl = url
-      uploadBucketUsed = bucket
-      break
-    }
-
-    const previewToUse = uploadedUrl || localUrl
-
-    if (!uploadedUrl) {
-      console.warn("No public URL returned; keeping local preview")
+    } catch (err) {
+      console.error("Artwork upload failed", err)
       toast({
-        title: "Upload incomplete",
-        description: "Image uploaded but no public URL was returned. Bucket may be private.",
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "Could not upload artwork. Please try again.",
         variant: "destructive",
       })
-      // Keep local preview but don't persist blob to DB
-      return
     }
+  }
 
-    // Keep temp preview in place for this session; remote URL will be used after reload
-
-    setProjects((prev) =>
-      prev.map((p) =>
-        p.id === project.id ? { ...p, slice_settings: { ...(p.slice_settings || {}), artwork: previewToUse } } : p,
-      ),
-    )
-
-    const { data, error: fetchError } = await supabase
-      .from("kit_projects")
-      .select("slice_settings")
-      .eq("id", project.id)
-      .single()
-    if (fetchError) {
-      console.error(fetchError)
+  const handleSaveTags = async (project: ProjectRow) => {
+    if (!user?.id) {
       toast({
-        title: "Artwork not saved",
-        description: "We uploaded the file but couldn't read your project settings.",
+        title: "Sign in required",
+        description: "You need to be signed in to edit tags.",
         variant: "destructive",
       })
       return
     }
-    const existing = (data?.slice_settings as Record<string, unknown>) || {}
-    const nextSettings = { ...existing, artwork: previewToUse }
-    const { error: updateError } = await supabase.from("kit_projects").update({ slice_settings: nextSettings }).eq("id", project.id)
-    if (updateError) {
-      console.error(`Failed to persist artwork (bucket ${uploadBucketUsed})`, updateError)
+    const supabase = createBrowserClient()
+    const raw = tempTags[project.id] ?? ""
+    const tags = parseTags(raw)
+
+    setSavingTags((prev) => ({ ...prev, [project.id]: true }))
+    try {
+      const { data, error: fetchError } = await supabase
+        .from("kit_projects")
+        .select("slice_settings")
+        .eq("id", project.id)
+        .single()
+      if (fetchError) {
+        console.error(fetchError)
+        toast({
+          title: "Tags not saved",
+          description: "Could not load existing settings.",
+          variant: "destructive",
+        })
+        return
+      }
+      const existing = (data?.slice_settings as Record<string, unknown>) || {}
+      const nextSettings = { ...existing, kitTags: tags, tags }
+      const { error: updateError } = await supabase.from("kit_projects").update({ slice_settings: nextSettings }).eq("id", project.id)
+      if (updateError) {
+        console.error("Failed to save tags", updateError)
+        toast({
+          title: "Tags not saved",
+          description: "Could not update tags. Try again.",
+          variant: "destructive",
+        })
+        return
+      }
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === project.id ? { ...p, slice_settings: { ...(p.slice_settings || {}), tags } } : p,
+        ),
+      )
       toast({
-        title: "Artwork not saved",
-        description: "Image uploaded but we couldn't save it to the project.",
-        variant: "destructive",
+        title: "Tags updated",
+        description: tags.length ? `Saved ${tags.length} tag${tags.length > 1 ? "s" : ""}.` : "No tags set.",
       })
+    } finally {
+      setSavingTags((prev) => ({ ...prev, [project.id]: false }))
     }
   }
 
@@ -508,8 +556,42 @@ export default function MyProjectsPage() {
                       const file = e.target.files?.[0]
                       if (file) handleArtworkUpload(project, file)
                     }}
-                  />
-                </label>
+                    />
+                  </label>
+                </div>
+              <div className="flex min-w-[240px] max-w-sm flex-col gap-3 rounded-2xl border border-white/10 bg-gradient-to-br from-white/5 via-white/5 to-black/30 p-4 shadow-[0_15px_45px_-20px_rgba(0,0,0,0.7)]">
+                <div className="flex items-center justify-between text-xs uppercase tracking-[0.25em] text-white/60">
+                  <span>Tags (max 3)</span>
+                  {((project.slice_settings as any)?.kitTags?.length ||
+                    (project.slice_settings as any)?.tags?.length ||
+                    0) > 0 && (
+                    <span className="text-white/40">
+                      {(project.slice_settings as any)?.kitTags?.slice?.(0, 3)?.join(", ") ||
+                        (project.slice_settings as any)?.tags?.slice?.(0, 3)?.join(", ")}
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={
+                    tempTags[project.id] ??
+                    ((project.slice_settings as any)?.kitTags?.slice?.(0, 3)?.join(", ") ??
+                      (project.slice_settings as any)?.tags?.slice?.(0, 3)?.join(", ") ??
+                      "")
+                  }
+                  onChange={(e) => setTempTags((prev) => ({ ...prev, [project.id]: e.target.value }))}
+                  placeholder="e.g. trap, loops, drill"
+                  className="rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:border-white/30 focus:outline-none"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full rounded-full border-white/30 bg-white/5 text-white hover:border-white/50 hover:bg-white/10"
+                  onClick={() => handleSaveTags(project)}
+                  disabled={!!savingTags[project.id]}
+                >
+                  {savingTags[project.id] ? "Saving..." : "Save tags"}
+                </Button>
               </div>
               <div className="flex flex-wrap items-center gap-2.5 md:flex-nowrap md:gap-3">
                 <Button

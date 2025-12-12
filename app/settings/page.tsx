@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { User, Bell, Lock, Palette, Upload, Image as ImageIcon } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
 import { createBrowserClient } from "@/lib/supabase-browser"
+import { uploadFiles } from "@/lib/uploadthing"
 
 export default function SettingsPage() {
   const { user, isAuthenticated } = useAuth()
@@ -146,93 +147,64 @@ export default function SettingsPage() {
     if (!allowed.includes(file.type)) {
       toast({
         title: "Unsupported image",
-        description: "Use PNG, JPG, or WEBP files under 5MB.",
+        description: "Use PNG, JPG, or WEBP files under 8MB.",
         variant: "destructive",
       })
       return
     }
 
-    const sizeLimit = 5 * 1024 * 1024
+    const sizeLimit = 8 * 1024 * 1024
     if (file.size > sizeLimit) {
       toast({
         title: "File too large",
-        description: "Please upload an image smaller than 5MB.",
+        description: "Please upload an image smaller than 8MB.",
         variant: "destructive",
       })
       return
     }
 
-    // Immediate local preview
+    // Immediate local preview while the UploadThing request runs
     const objectUrl = URL.createObjectURL(file)
     if (type === "avatar") {
       setAvatarPreview(objectUrl)
+      setAvatarRemote(null)
       setAvatarDirty(true)
     } else {
       setBackdropPreview(objectUrl)
+      setBackdropRemote(null)
       setBackdropDirty(true)
     }
 
-    const getPublicOrSignedUrl = async (bucket: string, path: string) => {
-      const publicUrl = supabase.storage.from(bucket).getPublicUrl(path).data?.publicUrl
-      if (publicUrl) return publicUrl
-      const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 30) // 30 days
-      return signed?.signedUrl ?? null
-    }
+    const routeKey = type === "avatar" ? "profileAvatar" : "profileBackdrop"
 
-    const ext = file.name.split(".").pop() || "png"
-    const kind = type === "avatar" ? "avatar" : "backdrop"
-    const path = `${user.id}/profile/${kind}-${Date.now()}.${ext}`
-    const bucketsToTry = ["covers", "kit-artwork"]
-    let uploadedUrl: string | null = null
+    try {
+      const uploadResult = await uploadFiles(routeKey, { files: [file] })
+      const uploadedUrl = uploadResult?.[0]?.url
 
-    for (const bucket of bucketsToTry) {
-      const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: true })
-      if (uploadError) {
-        const message = (uploadError as any)?.message?.toLowerCase?.() || ""
-        const isMissingBucket = message.includes("does not exist") || message.includes("not found")
-        if (isMissingBucket) {
-          console.warn(`Bucket ${bucket} missing, trying fallback`)
-          continue
-        }
-        console.error(uploadError)
-        toast({
-          title: "Upload failed",
-          description: uploadError.message || "We couldn't upload that image. Please try again.",
-          variant: "destructive",
-        })
-        return
+      if (!uploadedUrl) {
+        throw new Error("UploadThing did not return a file URL")
       }
 
-      const publicUrl = await getPublicOrSignedUrl(bucket, path)
-      if (!publicUrl) {
-        console.warn(`No public or signed URL from bucket ${bucket}`)
-        continue
+      if (type === "avatar") {
+        setAvatarRemote(uploadedUrl)
+        setAvatarPreview(uploadedUrl)
+      } else {
+        setBackdropRemote(uploadedUrl)
+        setBackdropPreview(uploadedUrl)
       }
-      uploadedUrl = publicUrl
-      break
-    }
 
-    if (!uploadedUrl) {
       toast({
-        title: "Could not create URL",
-        description: "Upload finished but no public URL returned. Check storage bucket visibility.",
+        title: type === "avatar" ? "Avatar ready" : "Backdrop ready",
+        description: "Save changes to update your profile.",
+      })
+    } catch (err) {
+      console.error("Image upload failed", err)
+      toast({
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "We couldn't upload that image. Please try again.",
         variant: "destructive",
       })
-      return
     }
-
-    if (type === "avatar") {
-      setAvatarRemote(uploadedUrl)
-      setAvatarPreview(uploadedUrl)
-    } else {
-      setBackdropRemote(uploadedUrl)
-      setBackdropPreview(uploadedUrl)
-    }
-
-    toast({
-      title: type === "avatar" ? "Avatar ready" : "Backdrop ready",
-      description: "Save changes to update your profile.",
-    })
   }
 
   const handleSaveProfile = async () => {
@@ -358,7 +330,15 @@ export default function SettingsPage() {
               <div className="grid gap-6 md:grid-cols-[auto,1fr] md:items-center">
                 <div className="flex items-center gap-6">
               <Avatar className="h-24 w-24">
-                <AvatarImage src={avatarPreview || serverAvatar || user.avatar || "/placeholder.svg"} alt={user.username} />
+                <AvatarImage
+                  src={
+                    avatarPreview ||
+                    serverAvatar ||
+                    user.avatar ||
+                    "https://ik.imagekit.io/vv1coyjgq/ChatGPT%20Image%20Nov%2014,%202025,%2012_28_23%20AM.png?updatedAt=1763080146104"
+                  }
+                  alt={user.username}
+                />
                     <AvatarFallback className="text-2xl">{user.username?.[0]?.toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <div>
@@ -366,7 +346,7 @@ export default function SettingsPage() {
                       <Upload className="h-4 w-4" />
                       Change Avatar
                     </Button>
-                    <p className="text-xs text-muted-foreground mt-2">PNG, JPG or WEBP. Max size 5MB.</p>
+                    <p className="text-xs text-muted-foreground mt-2">PNG, JPG or WEBP. Max size 8MB.</p>
                     <input
                       ref={avatarInputRef}
                       type="file"

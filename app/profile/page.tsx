@@ -28,82 +28,74 @@ export default function ProfilePage() {
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push("/")
-    } else if (isAuthenticated) {
+    } else if (isAuthenticated && user?.id) {
       const load = async () => {
         try {
           setIsFetching(true)
-          const supabase = createBrowserClient()
-          const { data: kitRows, error: kitError } = await supabase
-            .from("kits")
-            .select(
-              "id,name,description,cover_image_path,status,visibility,download_count,like_count,updated_at,created_at,price_cents,currency,bundle_path,owner_id",
-            )
-            .eq("owner_id", user?.id)
-            .or("visibility.eq.public,status.in.(published,ready)")
-            .order("updated_at", { ascending: false })
-
-          const { data: projectRows, error: projectError } = await supabase
-            .from("kit_projects")
-            .select("id,title,status,updated_at,created_at,slice_settings,owner_id")
-            .eq("owner_id", user?.id)
-            .in("status", ["published", "ready"])
-            .order("updated_at", { ascending: false })
-
-          if (kitError || projectError) {
-            console.error("Failed to load kits", kitError || projectError)
-            toast({
-              title: "Could not load kits",
-              description: "Public and unlisted kits failed to load. Please try again.",
-              variant: "destructive",
-            })
-            setKits([])
-          } else {
-            const normalizedKits = (kitRows || []).map((k) => ({
-              ...k,
-              tags: [],
-              source: "kit",
-            }))
-            const normalizedProjects = (projectRows || []).map((p) => {
-              const slice = (p.slice_settings || {}) as any
-              const price = slice?.price
-              const priceCents = price?.amountCents ?? 0
-              const currency = price?.currency || "USD"
-              const cover = slice?.cover_image_path || slice?.artwork || "/placeholder.svg"
-              const tags = Array.isArray(slice?.tags) ? slice.tags.slice(0, 6) : []
-              return {
-                id: `proj-${p.id}`,
-                name: p.title || "Untitled Kit",
-                description: slice?.description || "",
-                cover_image_path: cover,
-                status: p.status,
-                visibility: p.status === "ready" ? "unlisted" : "public",
-                download_count: 0,
-                like_count: 0,
-                updated_at: p.updated_at,
-                created_at: p.created_at,
-                price_cents: priceCents,
-                currency,
-                bundle_path: slice?.bundle_path,
-                tags,
-                source: "project",
-                project_id: p.id,
-                owner_id: p.owner_id,
-              }
-            })
-            const merged = [...normalizedKits, ...normalizedProjects].sort((a, b) => {
-              const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0
-              const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0
-              return bDate - aDate
-            })
-            setKits(merged)
+          const res = await fetch(`/api/profile/kits?userId=${user.id}`)
+          if (!res.ok) {
+            throw new Error((await res.json().catch(() => ({}))).error || "Failed to load kits")
           }
+          const body = await res.json()
+          const kitRows = body.kits || []
+          const projectRows = body.projects || []
+
+          const normalizedKits = kitRows.map((k: any) => ({
+            ...k,
+            tags: [],
+            source: "kit",
+          }))
+          const normalizedProjects = projectRows.map((p: any) => {
+            const slice = (p.slice_settings || {}) as any
+            const price = slice?.price
+            const priceCents = price?.amountCents ?? 0
+            const currency = price?.currency || "USD"
+            const cover =
+              slice?.cover_image_path ||
+              slice?.artwork ||
+              "https://ik.imagekit.io/vv1coyjgq/ChatGPT%20Image%20Nov%2014,%202025,%2012_28_23%20AM.png?updatedAt=1763080146104"
+            const tags = Array.isArray(slice?.tags) ? slice.tags.slice(0, 6) : []
+            return {
+              id: `proj-${p.id}`,
+              name: p.title || "Untitled Kit",
+              description: slice?.description || "",
+              cover_image_path: cover,
+              status: p.status,
+              visibility: p.status === "ready" ? "unlisted" : "public",
+              download_count: 0,
+              like_count: 0,
+              updated_at: p.updated_at,
+              created_at: p.created_at,
+              price_cents: priceCents,
+              currency,
+              bundle_path: slice?.bundle_path,
+              tags,
+              source: "project",
+              project_id: p.id,
+              owner_id: p.owner_id,
+            }
+          })
+          const merged = [...normalizedKits, ...normalizedProjects].sort((a, b) => {
+            const aDate = a.updated_at ? new Date(a.updated_at).getTime() : 0
+            const bDate = b.updated_at ? new Date(b.updated_at).getTime() : 0
+            return bDate - aDate
+          })
+          setKits(merged)
+        } catch (err) {
+          console.error("Failed to load kits", err)
+          toast({
+            title: "Could not load kits",
+            description: err instanceof Error ? err.message : "Please try again.",
+            variant: "destructive",
+          })
+          setKits([])
         } finally {
           setIsFetching(false)
         }
       }
       void load()
     }
-  }, [isAuthenticated, isLoading, user?.id, router])
+  }, [isAuthenticated, isLoading, user?.id, router, toast])
 
   useEffect(() => {
     if (!user?.id) return
@@ -124,7 +116,7 @@ export default function ProfilePage() {
           setSupportsBackdropColumn(false)
           return
         }
-        console.error("Failed to load profile backdrop", error)
+          console.error("Failed to load profile backdrop", error)
         return
       }
 
@@ -195,7 +187,9 @@ export default function ProfilePage() {
     totalComments: 0,
   }
 
-  const heroImage = (supportsBackdropColumn ? profile?.backdrop_url : null) ?? user.backdrop ?? null
+  const defaultImage =
+    "https://ik.imagekit.io/vv1coyjgq/ChatGPT%20Image%20Nov%2014,%202025,%2012_28_23%20AM.png?updatedAt=1763080146104"
+  const heroImage = (supportsBackdropColumn ? profile?.backdrop_url : null) ?? user.backdrop ?? defaultImage
   const handle = profile?.username || user.username || user.email?.split("@")[0] || "producer"
   const tags = ["Drum kits", "Electronic", "Loop kit", "Synth-pop"].slice(0, 4)
   const formatPrice = (kit: any) => {
@@ -256,7 +250,7 @@ export default function ProfilePage() {
           <div className="relative flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
             <div className="flex flex-col gap-6 md:flex-row md:items-end">
               <Avatar className="h-28 w-28 border-4 border-white/40 shadow-lg shadow-black/40">
-                <AvatarImage src={profile?.avatar_url || user.avatar || "/placeholder.svg"} alt={user.username} />
+                <AvatarImage src={profile?.avatar_url || user.avatar || defaultImage} alt={user.username} />
                 <AvatarFallback className="text-3xl">{user.username?.[0]?.toUpperCase() || "U"}</AvatarFallback>
               </Avatar>
               <div className="space-y-3">
@@ -335,7 +329,7 @@ export default function ProfilePage() {
                 >
                   <div className="relative aspect-square bg-black/30">
                     <img
-                      src={kit.cover_image_path || "/placeholder.svg"}
+                      src={kit.cover_image_path || defaultImage}
                       alt={kit.name || "Kit cover"}
                       className="h-full w-full object-cover"
                     />

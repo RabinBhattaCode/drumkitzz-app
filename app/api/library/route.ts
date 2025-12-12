@@ -178,9 +178,30 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: "kitId required" }, { status: 400 })
   }
 
+  // Fetch kit info before deletion for cleanup
+  const { data: kitRow } = await supabase
+    .from("kits")
+    .select("id, owner_id, project_id")
+    .eq("id", payload.kitId)
+    .eq("owner_id", userId)
+    .maybeSingle()
+
   const { error } = await supabase.from("kits").delete().eq("id", payload.kitId).eq("owner_id", userId)
   if (error) {
     return NextResponse.json({ error: error.message || "Failed to delete kit" }, { status: 500 })
+  }
+
+  // Clean up orphaned project linkage and assets for this kit
+  await supabase.from("kit_projects").update({ linked_kit_id: null }).eq("linked_kit_id", payload.kitId)
+  await supabase.from("kit_assets").delete().eq("kit_id", payload.kitId)
+
+  // If the kit was linked to a project, move that project back to draft so it stops appearing in lists
+  if (kitRow?.project_id) {
+    await supabase
+      .from("kit_projects")
+      .update({ status: "draft" })
+      .eq("id", kitRow.project_id)
+      .eq("owner_id", userId)
   }
 
   return NextResponse.json({ success: true })
