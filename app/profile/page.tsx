@@ -13,6 +13,7 @@ import { Music, Download, Heart, MessageSquare, Share2, MoreHorizontal, LockKeyh
 import { formatDistanceToNow } from "date-fns"
 import { createBrowserClient } from "@/lib/supabase-browser"
 import { downloadProjectZip } from "@/lib/download-kit"
+import type { Database } from "@/lib/database.types"
 
 export default function ProfilePage() {
   const { user, isAuthenticated, isLoading } = useAuth()
@@ -20,6 +21,8 @@ export default function ProfilePage() {
   const [kits, setKits] = useState<any[]>([])
   const [isFetching, setIsFetching] = useState(false)
   const [purchaseModal, setPurchaseModal] = useState<{ open: boolean; kit?: any }>({ open: false })
+  const [profile, setProfile] = useState<Database["public"]["Tables"]["profiles"]["Row"] | null>(null)
+  const [supportsBackdropColumn, setSupportsBackdropColumn] = useState(true)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -102,6 +105,65 @@ export default function ProfilePage() {
     }
   }, [isAuthenticated, isLoading, user?.id, router])
 
+  useEffect(() => {
+    if (!user?.id) return
+
+    const supabase = createBrowserClient()
+    const fetchProfile = async () => {
+      const selectCols = supportsBackdropColumn
+        ? "id,username,display_name,bio,avatar_url,backdrop_url"
+        : "id,username,display_name,bio,avatar_url"
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(selectCols)
+        .eq("id", user.id)
+        .maybeSingle()
+
+      if (error && error.code !== "PGRST116") {
+        if (error.message?.toLowerCase().includes("backdrop_url")) {
+          setSupportsBackdropColumn(false)
+          return
+        }
+        console.error("Failed to load profile backdrop", error)
+        return
+      }
+
+      let profileData = data
+      if (!profileData) {
+        const fallbackProfile: Record<string, any> = {
+          id: user.id,
+          username: user.username || user.email?.split("@")[0] || null,
+          display_name: user.username || null,
+          bio: null,
+          avatar_url: user.avatar || null,
+        }
+        if (supportsBackdropColumn) {
+          fallbackProfile.backdrop_url = null
+        }
+
+        const { data: upserted, error: upsertError } = await supabase
+          .from("profiles")
+          .upsert(fallbackProfile)
+          .select(selectCols)
+          .single()
+
+        if (upsertError) {
+          if (upsertError.message?.toLowerCase().includes("backdrop_url")) {
+            setSupportsBackdropColumn(false)
+            return
+          }
+          console.error("Failed to create profile", upsertError)
+          return
+        }
+        profileData = upserted
+      }
+
+      setProfile(profileData)
+    }
+
+    void fetchProfile()
+  }, [user?.id, supportsBackdropColumn])
+
   if (isLoading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center px-4">
@@ -133,8 +195,8 @@ export default function ProfilePage() {
     totalComments: 0,
   }
 
-  const heroImage = kits[0]?.cover_image_path || "/images/default-hero.jpg"
-  const handle = user.username || user.email?.split("@")[0] || "producer"
+  const heroImage = (supportsBackdropColumn ? profile?.backdrop_url : null) ?? user.backdrop ?? null
+  const handle = profile?.username || user.username || user.email?.split("@")[0] || "producer"
   const tags = ["Drum kits", "Electronic", "Loop kit", "Synth-pop"].slice(0, 4)
   const formatPrice = (kit: any) => {
     if (!kit || kit.price_cents === null || kit.price_cents === undefined || kit.price_cents <= 0) return "Free"
@@ -194,19 +256,21 @@ export default function ProfilePage() {
           <div className="relative flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
             <div className="flex flex-col gap-6 md:flex-row md:items-end">
               <Avatar className="h-28 w-28 border-4 border-white/40 shadow-lg shadow-black/40">
-                <AvatarImage src={user.avatar || "/placeholder.svg"} alt={user.username} />
+                <AvatarImage src={profile?.avatar_url || user.avatar || "/placeholder.svg"} alt={user.username} />
                 <AvatarFallback className="text-3xl">{user.username?.[0]?.toUpperCase() || "U"}</AvatarFallback>
               </Avatar>
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-4xl font-semibold leading-tight">{user.username || "Producer"}</h1>
+                  <h1 className="text-4xl font-semibold leading-tight">
+                    {profile?.display_name || user.username || "Producer"}
+                  </h1>
                   <Badge variant="secondary" className="bg-white/15 text-white hover:bg-white/20">
                     Creator
                   </Badge>
                 </div>
                 <p className="text-white/70">@{handle}</p>
                 <p className="max-w-3xl text-lg text-white/80">
-                  Music producer and drum kit creator crafting unique sounds for the community.
+                  {profile?.bio || "Music producer and drum kit creator crafting unique sounds for the community."}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {tags.map((tag) => (

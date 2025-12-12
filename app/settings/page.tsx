@@ -29,6 +29,8 @@ export default function SettingsPage() {
   const [backdropRemote, setBackdropRemote] = useState<string | null>(null)
   const [serverAvatar, setServerAvatar] = useState<string | null>(null)
   const [serverBackdrop, setServerBackdrop] = useState<string | null>(null)
+  const [avatarDirty, setAvatarDirty] = useState(false)
+  const [backdropDirty, setBackdropDirty] = useState(false)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileLoading, setProfileLoading] = useState(false)
   const [emailNotifications, setEmailNotifications] = useState(true)
@@ -65,7 +67,6 @@ export default function SettingsPage() {
       if (error.message?.toLowerCase().includes("backdrop_url")) {
         setSupportsBackdropColumn(false)
         setProfileLoading(false)
-        void loadProfile()
         return
       }
       console.error("Failed to load profile", error)
@@ -96,6 +97,11 @@ export default function SettingsPage() {
         .single()
 
       if (upsertError) {
+        if (upsertError.message?.toLowerCase().includes("backdrop_url")) {
+          setSupportsBackdropColumn(false)
+          setProfileLoading(false)
+          return
+        }
         console.error("Failed to create profile", upsertError)
         toast({
           title: "Could not load profile",
@@ -112,15 +118,19 @@ export default function SettingsPage() {
     setBio(profileData?.bio || "")
     const avatarFromProfile = profileData?.avatar_url || user.avatar || null
     const backdropFromProfile = profileData?.backdrop_url ?? user.backdrop ?? null
-    setAvatarPreview(avatarFromProfile)
-    setBackdropPreview(backdropFromProfile)
-    setAvatarRemote(avatarFromProfile)
-    setBackdropRemote(backdropFromProfile)
     setServerAvatar(avatarFromProfile)
     setServerBackdrop(backdropFromProfile)
+    if (!avatarDirty) {
+      setAvatarPreview(avatarFromProfile)
+      setAvatarRemote(avatarFromProfile)
+    }
+    if (!backdropDirty) {
+      setBackdropPreview(backdropFromProfile)
+      setBackdropRemote(backdropFromProfile)
+    }
     setProfileLoadedOnce(true)
     setProfileLoading(false)
-  }, [supportsBackdropColumn, supabase, toast, user])
+  }, [supportsBackdropColumn, supabase, toast, user, avatarDirty, backdropDirty])
 
   useEffect(() => {
     void loadProfile()
@@ -156,8 +166,10 @@ export default function SettingsPage() {
     const objectUrl = URL.createObjectURL(file)
     if (type === "avatar") {
       setAvatarPreview(objectUrl)
+      setAvatarDirty(true)
     } else {
       setBackdropPreview(objectUrl)
+      setBackdropDirty(true)
     }
 
     const getPublicOrSignedUrl = async (bucket: string, path: string) => {
@@ -168,7 +180,8 @@ export default function SettingsPage() {
     }
 
     const ext = file.name.split(".").pop() || "png"
-    const path = `${user.id}/${type === "avatar" ? "avatars" : "backdrops"}/${Date.now()}.${ext}`
+    const kind = type === "avatar" ? "avatar" : "backdrop"
+    const path = `${user.id}/profile/${kind}-${Date.now()}.${ext}`
     const bucketsToTry = ["covers", "kit-artwork"]
     let uploadedUrl: string | null = null
 
@@ -210,8 +223,10 @@ export default function SettingsPage() {
 
     if (type === "avatar") {
       setAvatarRemote(uploadedUrl)
+      setAvatarPreview(uploadedUrl)
     } else {
       setBackdropRemote(uploadedUrl)
+      setBackdropPreview(uploadedUrl)
     }
 
     toast({
@@ -231,7 +246,7 @@ export default function SettingsPage() {
       })
       return
     }
-    if (backdropPreview && supportsBackdropColumn && !backdropRemote && backdropPreview.startsWith("blob:")) {
+    if (backdropPreview && !backdropRemote && backdropPreview.startsWith("blob:")) {
       toast({
         title: "Finish backdrop upload",
         description: "We couldn't get a public URL for your backdrop. Please retry the upload.",
@@ -242,7 +257,7 @@ export default function SettingsPage() {
     setIsSavingProfile(true)
 
     const avatarToSave = avatarRemote ?? serverAvatar ?? null
-    const backdropToSave = supportsBackdropColumn ? backdropRemote ?? serverBackdrop ?? null : null
+    const backdropToSave = backdropRemote ?? serverBackdrop ?? null
 
     const profilePayload: Record<string, any> = {
       id: user.id,
@@ -282,6 +297,15 @@ export default function SettingsPage() {
     }
 
     await supabase.auth.refreshSession()
+
+    setServerAvatar(avatarToSave)
+    setServerBackdrop(backdropToSave)
+    setAvatarPreview(avatarToSave)
+    setBackdropPreview(backdropToSave)
+    setAvatarRemote(avatarToSave)
+    setBackdropRemote(backdropToSave)
+    setAvatarDirty(false)
+    setBackdropDirty(false)
 
     toast({
       title: "Profile updated",

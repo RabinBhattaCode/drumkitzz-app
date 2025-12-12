@@ -282,6 +282,11 @@ For production, we recommend using Replicate API for scalability.
 - **Adjustable Sensitivity**: Fine-tune detection threshold and minimum distance
 - **Type Classification**: AI categorization (kick, snare, hat, tom, cymbal, perc)
 - **Visual Feedback**: Preview potential slices before committing
+- **Similar Hit Detection (Planned)**: Flag near-duplicate hits within a loop so users can keep the best takes
+  - Compute a Mel spectrogram (or log-magnitude STFT) per slice, normalize, then compare slices with cosine similarity or dynamic time warping
+  - Use per-drum-type similarity thresholds (kicks vs. snares vs. hats) so repeated patterns are tolerated but obvious duplicates are highlighted
+  - Cluster highly similar slices to show "likely same hit" groups; let users pick/merge/export the canonical take
+  - Keep the ML heavy lifting optional: start with DSP-only similarity, and allow an external-trained embedding model (e.g., small CNN encoder) to plug in via a thin API if higher precision is needed
 
 #### 3. Sample Editor
 - **Individual Waveforms**: Detailed waveform for each detected slice

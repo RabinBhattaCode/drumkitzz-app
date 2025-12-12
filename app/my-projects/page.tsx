@@ -299,10 +299,17 @@ export default function MyProjectsPage() {
   }
 
   const handleArtworkUpload = async (project: ProjectRow, file: File) => {
+    if (!user?.id) {
+      toast({
+        title: "Sign in required",
+        description: "You need to be signed in to upload artwork.",
+        variant: "destructive",
+      })
+      return
+    }
     const supabase = createBrowserClient()
     const ext = file.name.split(".").pop() || "png"
-    const ownerPrefix = user?.id || "anonymous"
-    const path = `${ownerPrefix}/artwork/${project.id}-${Date.now()}.${ext}`
+    const path = `${user.id}/artwork/${project.id}-${Date.now()}.${ext}`
     // Show immediate local preview
     const localUrl = URL.createObjectURL(file)
     setTempArtwork((prev) => ({ ...prev, [project.id]: localUrl }))
@@ -373,6 +380,11 @@ export default function MyProjectsPage() {
       .single()
     if (fetchError) {
       console.error(fetchError)
+      toast({
+        title: "Artwork not saved",
+        description: "We uploaded the file but couldn't read your project settings.",
+        variant: "destructive",
+      })
       return
     }
     const existing = (data?.slice_settings as Record<string, unknown>) || {}
@@ -380,6 +392,11 @@ export default function MyProjectsPage() {
     const { error: updateError } = await supabase.from("kit_projects").update({ slice_settings: nextSettings }).eq("id", project.id)
     if (updateError) {
       console.error(`Failed to persist artwork (bucket ${uploadBucketUsed})`, updateError)
+      toast({
+        title: "Artwork not saved",
+        description: "Image uploaded but we couldn't save it to the project.",
+        variant: "destructive",
+      })
     }
   }
 
