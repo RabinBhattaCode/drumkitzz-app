@@ -33,6 +33,7 @@ export default function MyProjectsPage() {
   const [projects, setProjects] = useState<ProjectRow[]>([])
   const [isLoaded, setIsLoaded] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [tempArtwork, setTempArtwork] = useState<Record<string, string>>({})
   const [downloadModal, setDownloadModal] = useState<{
     open: boolean
     status: "preparing" | "error"
@@ -300,24 +301,68 @@ export default function MyProjectsPage() {
   const handleArtworkUpload = async (project: ProjectRow, file: File) => {
     const supabase = createBrowserClient()
     const ext = file.name.split(".").pop() || "png"
-    const path = `artwork/${project.id}-${Date.now()}.${ext}`
-    const { error: uploadError } = await supabase.storage.from("kit-artwork").upload(path, file, { upsert: true })
-    if (uploadError) {
-      console.error(uploadError)
+    const ownerPrefix = user?.id || "anonymous"
+    const path = `${ownerPrefix}/artwork/${project.id}-${Date.now()}.${ext}`
+    // Show immediate local preview
+    const localUrl = URL.createObjectURL(file)
+    setTempArtwork((prev) => ({ ...prev, [project.id]: localUrl }))
+
+    const getPublicOrSignedUrl = async (bucket: string, objectPath: string) => {
+      const publicUrl = supabase.storage.from(bucket).getPublicUrl(objectPath).data?.publicUrl
+      if (publicUrl) return publicUrl
+      const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(objectPath, 60 * 60 * 24 * 30)
+      return signed?.signedUrl ?? null
+    }
+
+    const bucketsToTry = ["covers", "kit-artwork"]
+    let uploadedUrl: string | null = null
+    let uploadBucketUsed: string | null = null
+
+    for (const bucket of bucketsToTry) {
+      const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: true })
+      if (uploadError) {
+        const message = (uploadError as any)?.message?.toLowerCase?.() || ""
+        const isMissingBucket = message.includes("does not exist") || message.includes("not found")
+        if (isMissingBucket) {
+          console.warn(`Bucket ${bucket} missing, trying fallback`)
+          continue
+        }
+        console.error(uploadError)
+        toast({
+          title: "Upload failed",
+          description: uploadError.message || "Could not upload artwork. Please try again.",
+          variant: "destructive",
+        })
+        return
+      }
+      const url = await getPublicOrSignedUrl(bucket, path)
+      if (!url) {
+        console.warn(`No public or signed URL returned from ${bucket} for ${path}`)
+        continue
+      }
+      uploadedUrl = url
+      uploadBucketUsed = bucket
+      break
+    }
+
+    const previewToUse = uploadedUrl || localUrl
+
+    if (!uploadedUrl) {
+      console.warn("No public URL returned; keeping local preview")
       toast({
-        title: "Upload failed",
-        description: "Could not upload artwork. Check storage bucket and try again.",
+        title: "Upload incomplete",
+        description: "Image uploaded but no public URL was returned. Bucket may be private.",
         variant: "destructive",
       })
+      // Keep local preview but don't persist blob to DB
       return
     }
 
-    const { data: publicUrlData } = supabase.storage.from("kit-artwork").getPublicUrl(path)
-    const publicUrl = publicUrlData?.publicUrl
+    // Keep temp preview in place for this session; remote URL will be used after reload
 
     setProjects((prev) =>
       prev.map((p) =>
-        p.id === project.id ? { ...p, slice_settings: { ...(p.slice_settings || {}), artwork: publicUrl } } : p,
+        p.id === project.id ? { ...p, slice_settings: { ...(p.slice_settings || {}), artwork: previewToUse } } : p,
       ),
     )
 
@@ -331,10 +376,10 @@ export default function MyProjectsPage() {
       return
     }
     const existing = (data?.slice_settings as Record<string, unknown>) || {}
-    const nextSettings = { ...existing, artwork: publicUrl }
+    const nextSettings = { ...existing, artwork: previewToUse }
     const { error: updateError } = await supabase.from("kit_projects").update({ slice_settings: nextSettings }).eq("id", project.id)
     if (updateError) {
-      console.error(updateError)
+      console.error(`Failed to persist artwork (bucket ${uploadBucketUsed})`, updateError)
     }
   }
 
@@ -424,9 +469,14 @@ export default function MyProjectsPage() {
               <div className="h-px w-full border-t border-white/10 md:hidden" aria-hidden />
               <div className="flex items-center gap-3 md:pl-6">
                 <label className="group relative flex h-12 w-12 cursor-pointer items-center justify-center rounded-xl border border-white/15 bg-white/5 text-xs uppercase tracking-wide text-white/60 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.8)] hover:bg-white/10">
-                  {project.slice_settings?.artwork || project.cover_image_path ? (
+                  {tempArtwork[project.id] || project.slice_settings?.artwork || project.cover_image_path ? (
                     <img
-                      src={(project.slice_settings as any)?.artwork || project.cover_image_path || "/placeholder.svg"}
+                      src={
+                        tempArtwork[project.id] ||
+                        (project.slice_settings as any)?.artwork ||
+                        project.cover_image_path ||
+                        "/placeholder.svg"
+                      }
                       alt="Artwork"
                       className="absolute inset-0 h-full w-full rounded-xl object-cover"
                     />

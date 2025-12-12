@@ -1,8 +1,8 @@
 "use client"
 
 import { useAuth } from "@/lib/auth-context"
-import { useRouter } from 'next/navigation'
-import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -12,8 +12,9 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { User, Bell, Lock, Palette, Upload } from 'lucide-react'
+import { User, Bell, Lock, Palette, Upload, Image as ImageIcon } from 'lucide-react'
 import { useToast } from "@/hooks/use-toast"
+import { createBrowserClient } from "@/lib/supabase-browser"
 
 export default function SettingsPage() {
   const { user, isAuthenticated } = useAuth()
@@ -22,9 +23,22 @@ export default function SettingsPage() {
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [bio, setBio] = useState("")
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null) // display priority
+  const [backdropPreview, setBackdropPreview] = useState<string | null>(null) // display priority
+  const [avatarRemote, setAvatarRemote] = useState<string | null>(null)
+  const [backdropRemote, setBackdropRemote] = useState<string | null>(null)
+  const [serverAvatar, setServerAvatar] = useState<string | null>(null)
+  const [serverBackdrop, setServerBackdrop] = useState<string | null>(null)
+  const [isSavingProfile, setIsSavingProfile] = useState(false)
+  const [profileLoading, setProfileLoading] = useState(false)
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [pushNotifications, setPushNotifications] = useState(true)
   const [marketingEmails, setMarketingEmails] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement>(null)
+  const backdropInputRef = useRef<HTMLInputElement>(null)
+  const supabase = useMemo(() => createBrowserClient(), [])
+  const [supportsBackdropColumn, setSupportsBackdropColumn] = useState(true)
+  const [profileLoadedOnce, setProfileLoadedOnce] = useState(false)
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -35,15 +49,245 @@ export default function SettingsPage() {
     }
   }, [isAuthenticated, user, router])
 
+  const loadProfile = useCallback(async () => {
+    if (!user?.id) return
+    setProfileLoading(true)
+
+    const selectCols = supportsBackdropColumn ? "id,username,bio,avatar_url,backdrop_url" : "id,username,bio,avatar_url"
+    const { data, error } = await supabase
+      .from("profiles")
+      .select(selectCols)
+      .eq("id", user.id)
+      .maybeSingle()
+
+    if (error && error.code !== "PGRST116") {
+      // Column missing: retry without backdrop
+      if (error.message?.toLowerCase().includes("backdrop_url")) {
+        setSupportsBackdropColumn(false)
+        setProfileLoading(false)
+        void loadProfile()
+        return
+      }
+      console.error("Failed to load profile", error)
+      toast({
+        title: "Could not load profile",
+        description: "We had trouble loading your profile details.",
+        variant: "destructive",
+      })
+      setProfileLoading(false)
+      return
+    }
+
+    let profileData = data
+    if (!profileData) {
+      const fallbackProfile: Record<string, any> = {
+        id: user.id,
+        username: user.username || user.email?.split("@")[0] || null,
+        bio: null,
+        avatar_url: null,
+      }
+      if (supportsBackdropColumn) {
+        fallbackProfile.backdrop_url = null
+      }
+      const { data: upserted, error: upsertError } = await supabase
+        .from("profiles")
+        .upsert(fallbackProfile)
+        .select(selectCols)
+        .single()
+
+      if (upsertError) {
+        console.error("Failed to create profile", upsertError)
+        toast({
+          title: "Could not load profile",
+          description: "We had trouble loading your profile details.",
+          variant: "destructive",
+        })
+        setProfileLoading(false)
+        return
+      }
+      profileData = upserted
+    }
+
+    setUsername(profileData?.username || user.username || "")
+    setBio(profileData?.bio || "")
+    const avatarFromProfile = profileData?.avatar_url || user.avatar || null
+    const backdropFromProfile = profileData?.backdrop_url ?? user.backdrop ?? null
+    setAvatarPreview(avatarFromProfile)
+    setBackdropPreview(backdropFromProfile)
+    setAvatarRemote(avatarFromProfile)
+    setBackdropRemote(backdropFromProfile)
+    setServerAvatar(avatarFromProfile)
+    setServerBackdrop(backdropFromProfile)
+    setProfileLoadedOnce(true)
+    setProfileLoading(false)
+  }, [supportsBackdropColumn, supabase, toast, user])
+
+  useEffect(() => {
+    void loadProfile()
+  }, [loadProfile])
+
   if (!isAuthenticated || !user) {
     return null
   }
 
-  const handleSaveProfile = () => {
+  const handleImageUpload = async (file: File, type: "avatar" | "backdrop") => {
+    if (!user?.id) return
+    const allowed = ["image/png", "image/jpeg", "image/jpg", "image/webp"]
+    if (!allowed.includes(file.type)) {
+      toast({
+        title: "Unsupported image",
+        description: "Use PNG, JPG, or WEBP files under 5MB.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const sizeLimit = 5 * 1024 * 1024
+    if (file.size > sizeLimit) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Immediate local preview
+    const objectUrl = URL.createObjectURL(file)
+    if (type === "avatar") {
+      setAvatarPreview(objectUrl)
+    } else {
+      setBackdropPreview(objectUrl)
+    }
+
+    const getPublicOrSignedUrl = async (bucket: string, path: string) => {
+      const publicUrl = supabase.storage.from(bucket).getPublicUrl(path).data?.publicUrl
+      if (publicUrl) return publicUrl
+      const { data: signed } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 30) // 30 days
+      return signed?.signedUrl ?? null
+    }
+
+    const ext = file.name.split(".").pop() || "png"
+    const path = `${user.id}/${type === "avatar" ? "avatars" : "backdrops"}/${Date.now()}.${ext}`
+    const bucketsToTry = ["covers", "kit-artwork"]
+    let uploadedUrl: string | null = null
+
+    for (const bucket of bucketsToTry) {
+      const { error: uploadError } = await supabase.storage.from(bucket).upload(path, file, { upsert: true })
+      if (uploadError) {
+        const message = (uploadError as any)?.message?.toLowerCase?.() || ""
+        const isMissingBucket = message.includes("does not exist") || message.includes("not found")
+        if (isMissingBucket) {
+          console.warn(`Bucket ${bucket} missing, trying fallback`)
+          continue
+        }
+        console.error(uploadError)
+        toast({
+          title: "Upload failed",
+          description: uploadError.message || "We couldn't upload that image. Please try again.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const publicUrl = await getPublicOrSignedUrl(bucket, path)
+      if (!publicUrl) {
+        console.warn(`No public or signed URL from bucket ${bucket}`)
+        continue
+      }
+      uploadedUrl = publicUrl
+      break
+    }
+
+    if (!uploadedUrl) {
+      toast({
+        title: "Could not create URL",
+        description: "Upload finished but no public URL returned. Check storage bucket visibility.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (type === "avatar") {
+      setAvatarRemote(uploadedUrl)
+    } else {
+      setBackdropRemote(uploadedUrl)
+    }
+
+    toast({
+      title: type === "avatar" ? "Avatar ready" : "Backdrop ready",
+      description: "Save changes to update your profile.",
+    })
+  }
+
+  const handleSaveProfile = async () => {
+    if (!user?.id) return
+    // Prevent saving blob-only previews
+    if (avatarPreview && !avatarRemote && avatarPreview.startsWith("blob:")) {
+      toast({
+        title: "Finish avatar upload",
+        description: "We couldn't get a public URL for your avatar. Please retry the upload.",
+        variant: "destructive",
+      })
+      return
+    }
+    if (backdropPreview && supportsBackdropColumn && !backdropRemote && backdropPreview.startsWith("blob:")) {
+      toast({
+        title: "Finish backdrop upload",
+        description: "We couldn't get a public URL for your backdrop. Please retry the upload.",
+        variant: "destructive",
+      })
+      return
+    }
+    setIsSavingProfile(true)
+
+    const avatarToSave = avatarRemote ?? serverAvatar ?? null
+    const backdropToSave = supportsBackdropColumn ? backdropRemote ?? serverBackdrop ?? null : null
+
+    const profilePayload: Record<string, any> = {
+      id: user.id,
+      username: username || null,
+      bio: bio || null,
+      avatar_url: avatarToSave,
+    }
+    if (supportsBackdropColumn) {
+      profilePayload.backdrop_url = backdropToSave
+    }
+
+    const { error } = await supabase.from("profiles").upsert(profilePayload)
+    if (error) {
+      console.error("Profile save failed", error)
+      toast({
+        title: "Could not save profile",
+        description: error.message || "Please try again.",
+        variant: "destructive",
+      })
+      setIsSavingProfile(false)
+      return
+    }
+
+    const { error: authError } = await supabase.auth.updateUser({
+      data: {
+        username: username || null,
+        avatar_url: avatarToSave,
+        backdrop_url: backdropToSave,
+      },
+    })
+    if (authError) {
+      console.warn("Auth metadata update failed", authError)
+    }
+
+    if (profileLoadedOnce) {
+      void loadProfile()
+    }
+
+    await supabase.auth.refreshSession()
+
     toast({
       title: "Profile updated",
       description: "Your profile has been successfully updated.",
     })
+    setIsSavingProfile(false)
   }
 
   const handleSaveNotifications = () => {
@@ -87,17 +331,59 @@ export default function SettingsPage() {
               <CardDescription>Update your profile details and public information</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center gap-6">
-                <Avatar className="h-24 w-24">
-                  <AvatarImage src={user.avatar || "/placeholder.svg"} alt={user.username} />
-                  <AvatarFallback className="text-2xl">{user.username?.[0]?.toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <div>
-                  <Button variant="outline" className="gap-2">
-                    <Upload className="h-4 w-4" />
-                    Change Avatar
-                  </Button>
-                  <p className="text-xs text-muted-foreground mt-2">JPG, PNG or GIF. Max size 2MB.</p>
+              <div className="grid gap-6 md:grid-cols-[auto,1fr] md:items-center">
+                <div className="flex items-center gap-6">
+              <Avatar className="h-24 w-24">
+                <AvatarImage src={avatarPreview || serverAvatar || user.avatar || "/placeholder.svg"} alt={user.username} />
+                    <AvatarFallback className="text-2xl">{user.username?.[0]?.toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <Button variant="outline" className="gap-2" onClick={() => avatarInputRef.current?.click()}>
+                      <Upload className="h-4 w-4" />
+                      Change Avatar
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2">PNG, JPG or WEBP. Max size 5MB.</p>
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) void handleImageUpload(file, "avatar")
+                      }}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Profile backdrop</Label>
+                  <div className="relative h-32 overflow-hidden rounded-xl border border-dashed border-muted-foreground/30 bg-muted">
+                    {backdropPreview ? (
+                      <img src={backdropPreview} alt="Profile backdrop" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
+                        <ImageIcon className="h-4 w-4" />
+                        <span>No backdrop uploaded</span>
+                      </div>
+                    )}
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition hover:opacity-100">
+                      <Button size="sm" variant="outline" className="gap-2" onClick={() => backdropInputRef.current?.click()}>
+                        <Upload className="h-4 w-4" />
+                        Upload Backdrop
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Appears behind your profile header.</p>
+                  <input
+                    ref={backdropInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) void handleImageUpload(file, "backdrop")
+                    }}
+                  />
                 </div>
               </div>
 
@@ -127,7 +413,9 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <Button onClick={handleSaveProfile}>Save Changes</Button>
+              <Button onClick={handleSaveProfile} disabled={isSavingProfile}>
+                {isSavingProfile ? "Saving..." : "Save Changes"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
