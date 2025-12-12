@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
     const tierFromPrice = pricingTiers.find((t) => t.stripePriceId === priceId)?.id
 
-    const session = await stripe!.checkout.sessions.create({
+    const checkoutSession = await stripe!.checkout.sessions.create({
       mode: body.mode ?? "subscription",
       line_items: [
         {
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
       },
     })
 
-    return NextResponse.json({ url: session.url })
+    return NextResponse.json({ url: checkoutSession.url })
   } catch (error: any) {
     console.error("[api/checkout] error", error)
     return NextResponse.json(
